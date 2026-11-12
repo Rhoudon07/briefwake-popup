@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BriefWake Popup</string>
+    <string name="service_name">BriefWake - Lector de Resumen en Pantalla Apagada</string>
+</resources>
+
