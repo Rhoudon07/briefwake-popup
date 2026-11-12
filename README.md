@@ -64,3 +64,4 @@ APP-NA/
 ├── samsung_brief_popup_adb.ps1                      # Automatización ADB
 └── build.gradle.kts
 ```
+
