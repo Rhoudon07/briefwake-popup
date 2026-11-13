@@ -78,7 +78,7 @@ import kotlinx.coroutines.delay
 class BriefPopupActivity : ComponentActivity() {
 
     private var wakeLock: PowerManager.WakeLock? = null
-    private var isUserInteracted = false
+    private var isPopupDismissed = false
 
     private var pkgState by mutableStateOf("")
     private var appNameState by mutableStateOf("")
@@ -115,7 +115,6 @@ class BriefPopupActivity : ComponentActivity() {
                 showEdgeGlow = showEdgeGlow,
                 triggerKey = triggerTimestampState,
                 onOpenNotification = {
-                    isUserInteracted = true
                     openNotificationAndFinish()
                 },
                 onDismiss = {
@@ -145,12 +144,10 @@ class BriefPopupActivity : ComponentActivity() {
     private fun configureLockScreenAndFullscreen() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
-            setTurnScreenOn(true)
         }
         @Suppress("DEPRECATION")
         window.addFlags(
-            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         )
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -167,7 +164,6 @@ class BriefPopupActivity : ComponentActivity() {
             releaseWakeLock()
             val durationSec = AppPreferences.getDurationSeconds(this)
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            // Usamos un WakeLock con duración ajustada. Al liberarse, la pantalla se apagará de inmediato.
             wakeLock = pm.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
                     PowerManager.ACQUIRE_CAUSES_WAKEUP,
@@ -191,6 +187,7 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     private fun openNotificationAndFinish() {
+        isPopupDismissed = true
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val launchAction = {
             try {
@@ -235,16 +232,22 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     private fun closeOverlay() {
+        if (isPopupDismissed) return
+        isPopupDismissed = true
+
+        // 1. Liberar inmediatamente el WakeLock para que el hardware apague la pantalla
         releaseWakeLock()
 
-        // Desactivar flags para que el sistema apague la pantalla de inmediato y no la deje encendida en la pantalla de bloqueo
+        // 2. Limpiar flags del sistema de ventanas
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(false)
                 setTurnScreenOn(false)
             }
             @Suppress("DEPRECATION")
             window.clearFlags(
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             )
         } catch (_: Exception) {}
@@ -315,8 +318,8 @@ private fun BriefPopupOverlayScreen(
         visible = true
         progressTarget = 0f
         delay(durationSeconds * 1000L)
+        // Al terminar el tiempo de la pastilla, cerrar de inmediato para apagar la pantalla
         visible = false
-        delay(200L)
         onDismiss()
     }
 
@@ -358,7 +361,7 @@ private fun BriefPopupOverlayScreen(
             enter = fadeIn(tween(220)) +
                 scaleIn(initialScale = 0.82f, animationSpec = tween(260, easing = FastOutSlowInEasing)) +
                 expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(280)),
-            exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.88f, animationSpec = tween(200)),
+            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.88f, animationSpec = tween(150)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 68.dp, start = 20.dp, end = 20.dp)
