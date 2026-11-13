@@ -78,6 +78,7 @@ import kotlinx.coroutines.delay
 class BriefPopupActivity : ComponentActivity() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile
     private var isUserInteracted = false
 
     private var pkgState by mutableStateOf("")
@@ -89,6 +90,7 @@ class BriefPopupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        isUserInteracted = false
 
         configureLockScreenAndFullscreen()
         extractIntentData(intent)
@@ -116,10 +118,17 @@ class BriefPopupActivity : ComponentActivity() {
                 triggerKey = triggerTimestampState,
                 onOpenNotification = {
                     isUserInteracted = true
-                    openNotificationAndFinish()
+                    openNotificationAndProceedUnlock()
                 },
-                onDismiss = {
+                onManualDismiss = {
+                    isUserInteracted = false
                     turnOffScreenAndFinish()
+                },
+                onTimeoutExpired = {
+                    // Si el usuario ya interactuó tocando la pastilla, NO apagar la pantalla
+                    if (!isUserInteracted) {
+                        turnOffScreenAndFinish()
+                    }
                 }
             )
         }
@@ -128,6 +137,7 @@ class BriefPopupActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        isUserInteracted = false
         extractIntentData(intent)
         acquireTemporaryWakeLock()
     }
@@ -189,9 +199,20 @@ class BriefPopupActivity : ComponentActivity() {
         }
     }
 
-    private fun openNotificationAndFinish() {
+    /**
+     * El usuario tocó la pastilla de notificación emergente:
+     * 1. Mantiene la pantalla encendida.
+     * 2. Solicita al sistema el desbloqueo (requestDismissKeyguard) permitiendo huella, rostro o PIN.
+     * 3. Abre la app/conversación correspondiente sin apagar la pantalla.
+     */
+    private fun openNotificationAndProceedUnlock() {
+        isUserInteracted = true
+
+        // Mantener la pantalla encendida para el proceso de desbloqueo e interacción
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        val launchAction = {
+        val launchTargetApp = {
             try {
                 val pending = RecentNotificationActionStore.lastContentIntent
                 if (pending != null) {
@@ -216,27 +237,36 @@ class BriefPopupActivity : ComponentActivity() {
                 this,
                 object : KeyguardManager.KeyguardDismissCallback() {
                     override fun onDismissSucceeded() {
-                        launchAction()
+                        launchTargetApp()
                     }
 
                     override fun onDismissCancelled() {
-                        turnOffScreenAndFinish()
+                        // El usuario canceló el desbloqueo explícitamente: cerramos
+                        releaseWakeLock()
+                        finish()
+                        overridePendingTransition(0, 0)
                     }
 
                     override fun onDismissError() {
-                        launchAction()
+                        launchTargetApp()
                     }
                 }
             )
         } else {
-            launchAction()
+            launchTargetApp()
         }
     }
 
+    /**
+     * NO se interactuó con la notificación (o se tocó la X para descartar):
+     * Apaga la pantalla inmediatamente para ahorrar batería.
+     */
     private fun turnOffScreenAndFinish() {
+        if (isUserInteracted) return
+
         releaseWakeLock()
 
-        // 1. Limpiar flags para no mantener encendida la pantalla en el LockScreen
+        // 1. Limpiar flags para no forzar la pantalla encendida en el LockScreen
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setTurnScreenOn(false)
@@ -248,15 +278,13 @@ class BriefPopupActivity : ComponentActivity() {
             )
         } catch (_: Exception) {}
 
-        // 2. Apagar pantalla mediante Accesibilidad (GLOBAL_ACTION_LOCK_SCREEN).
-        // NOTA IMPORTANTE: A diferencia de DevicePolicyManager.lockNow(), Accesibilidad
-        // simula presionar el botón físico de encendido y NO deshabilita la biometría (huella/rostro).
+        // 2. Apagar pantalla forzosamente mediante Accesibilidad (simula botón de encendido sin afectar biometría)
         var screenTurnedOff = false
         if (BriefAccessibilityService.isRunning()) {
             screenTurnedOff = BriefAccessibilityService.lockScreen()
         }
 
-        // 3. Fallback en caso de que no tenga accesibilidad activa: atenuar brillo en negro AMOLED
+        // 3. Fallback: atenuar brillo en negro AMOLED
         if (!screenTurnedOff) {
             try {
                 val lp = window.attributes
@@ -295,7 +323,8 @@ private fun BriefPopupOverlayScreen(
     showEdgeGlow: Boolean,
     triggerKey: Long,
     onOpenNotification: () -> Unit,
-    onDismiss: () -> Unit
+    onManualDismiss: () -> Unit,
+    onTimeoutExpired: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var visible by remember(triggerKey) { mutableStateOf(false) }
@@ -332,8 +361,8 @@ private fun BriefPopupOverlayScreen(
         progressTarget = 0f
         delay(durationSeconds * 1000L)
         visible = false
-        delay(150L)
-        onDismiss()
+        delay(120L)
+        onTimeoutExpired()
     }
 
     // Fondo 100% negro AMOLED: los píxeles negros quedan apagados en pantallas OLED/AMOLED
@@ -344,7 +373,7 @@ private fun BriefPopupOverlayScreen(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = { onDismiss() }
+                onClick = { onManualDismiss() }
             )
     ) {
         // Iluminación sutil superior (Edge Lighting estilo Samsung One UI)
@@ -485,7 +514,7 @@ private fun BriefPopupOverlayScreen(
                     Spacer(modifier = Modifier.width(6.dp))
 
                     IconButton(
-                        onClick = onDismiss,
+                        onClick = onManualDismiss,
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
