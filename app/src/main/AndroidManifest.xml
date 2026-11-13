@@ -64,7 +64,7 @@
             </intent-filter>
         </service>
 
-        <!-- Servicio de Accesibilidad para forzar el apagado/bloqueo de pantalla inmediato -->
+        <!-- Servicio de Accesibilidad para forzar el apagado/bloqueo de pantalla respetando biometría (Fingerprint / Face Unlock) -->
         <service
             android:name=".BriefAccessibilityService"
             android:exported="false"
@@ -77,21 +77,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
-
-        <!-- Receptor Device Admin para apagar/bloquear pantalla como alternativa directa -->
-        <receiver
-            android:name=".BriefDeviceAdminReceiver"
-            android:description="@string/accessibility_service_description"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_DEVICE_ADMIN">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_policies" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
 
     </application>
 

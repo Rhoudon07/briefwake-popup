@@ -1,8 +1,6 @@
 package com.appna.briefpopup
 
 import android.app.KeyguardManager
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -238,7 +236,7 @@ class BriefPopupActivity : ComponentActivity() {
     private fun turnOffScreenAndFinish() {
         releaseWakeLock()
 
-        // 1. Limpiar flags de encendido de pantalla
+        // 1. Limpiar flags para no mantener encendida la pantalla en el LockScreen
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setTurnScreenOn(false)
@@ -250,25 +248,15 @@ class BriefPopupActivity : ComponentActivity() {
             )
         } catch (_: Exception) {}
 
-        // 2. Apagar pantalla forzosamente mediante Accesibilidad (GlobalActionLockScreen) o DeviceAdmin
+        // 2. Apagar pantalla mediante Accesibilidad (GLOBAL_ACTION_LOCK_SCREEN).
+        // NOTA IMPORTANTE: A diferencia de DevicePolicyManager.lockNow(), Accesibilidad
+        // simula presionar el botón físico de encendido y NO deshabilita la biometría (huella/rostro).
         var screenTurnedOff = false
-
         if (BriefAccessibilityService.isRunning()) {
             screenTurnedOff = BriefAccessibilityService.lockScreen()
         }
 
-        if (!screenTurnedOff) {
-            try {
-                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                val adminComponent = ComponentName(this, BriefDeviceAdminReceiver::class.java)
-                if (dpm.isAdminActive(adminComponent)) {
-                    dpm.lockNow()
-                    screenTurnedOff = true
-                }
-            } catch (_: Exception) {}
-        }
-
-        // 3. Fallback: atenuar brillo al mínimo en negro absoluto mientras el sistema entra en reposo
+        // 3. Fallback en caso de que no tenga accesibilidad activa: atenuar brillo en negro AMOLED
         if (!screenTurnedOff) {
             try {
                 val lp = window.attributes

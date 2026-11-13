@@ -1,6 +1,5 @@
 package com.appna.briefpopup
 
-import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -38,8 +37,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -129,7 +128,7 @@ fun BriefWakeMainScreen() {
     var hasNotificationAccess by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var ignoresBatteryOptimizations by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
-    var hasScreenLockCapability by remember { mutableStateOf(isScreenLockCapabilityGranted(context)) }
+    var hasAccessibilityService by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
 
     // Preferencias de usuario
     var masterEnabled by remember { mutableStateOf(AppPreferences.isMasterEnabled(context)) }
@@ -158,7 +157,7 @@ fun BriefWakeMainScreen() {
                 hasNotificationAccess = isNotificationListenerEnabled(context)
                 hasOverlayPermission = Settings.canDrawOverlays(context)
                 ignoresBatteryOptimizations = isIgnoringBatteryOptimizations(context)
-                hasScreenLockCapability = isScreenLockCapabilityGranted(context)
+                hasAccessibilityService = isAccessibilityServiceEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -193,7 +192,7 @@ fun BriefWakeMainScreen() {
                         packageName = context.packageName,
                         appName = "WhatsApp",
                         title = "Mensaje de Prueba",
-                        message = "¡Así se ve el resumen emergente con la pantalla apagada!",
+                        message = "¡Resumen con pantalla apagada y desbloqueo biométrico activo!",
                         accentColor = 0xFF25D366.toInt()
                     )
                 }
@@ -246,7 +245,7 @@ fun BriefWakeMainScreen() {
                     hasNotificationAccess = hasNotificationAccess,
                     hasOverlayPermission = hasOverlayPermission,
                     ignoresBatteryOptimizations = ignoresBatteryOptimizations,
-                    hasScreenLockCapability = hasScreenLockCapability,
+                    hasAccessibilityService = hasAccessibilityService,
                     onOpenNotificationAccess = { openNotificationListenerSettings(context) },
                     onOpenOverlaySettings = { openOverlaySettings(context) },
                     onRequestBatteryExemption = { requestIgnoreBatteryOptimizations(context) },
@@ -273,7 +272,7 @@ fun BriefWakeMainScreen() {
                             text = if (testCountdown > 0) {
                                 "Apaga la pantalla de tu celular AHORA... Mostrando resumen en ${testCountdown}s"
                             } else {
-                                "Pulsa el botón y bloquea tu pantalla de inmediato. Se encenderá el resumen y se apagará sola exactamente al terminar."
+                                "Pulsa el botón y bloquea tu pantalla. Se mostrará el resumen, se apagará al terminar y podrás desbloquear normalmente con huella o rostro."
                             },
                             fontSize = 12.sp,
                             color = if (testCountdown > 0) Color(0xFF38BDF8) else Color(0xFF94A3B8)
@@ -308,7 +307,7 @@ fun BriefWakeMainScreen() {
                                         packageName = context.packageName,
                                         appName = "Telegram",
                                         title = "Vista Previa Inmediata",
-                                        message = "Pastilla emergente tipo resumen con iluminación Edge.",
+                                        message = "Pastilla emergente con compatibilidad de huella/rostro.",
                                         accentColor = 0xFF2AABEE.toInt()
                                     )
                                 }
@@ -494,13 +493,13 @@ private fun PermissionsCard(
     hasNotificationAccess: Boolean,
     hasOverlayPermission: Boolean,
     ignoresBatteryOptimizations: Boolean,
-    hasScreenLockCapability: Boolean,
+    hasAccessibilityService: Boolean,
     onOpenNotificationAccess: () -> Unit,
     onOpenOverlaySettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit
 ) {
-    val allGranted = hasNotificationAccess && hasOverlayPermission && ignoresBatteryOptimizations && hasScreenLockCapability
+    val allGranted = hasNotificationAccess && hasOverlayPermission && ignoresBatteryOptimizations && hasAccessibilityService
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (allGranted) Color(0xFF0F241D) else Color(0xFF1E1B18)
@@ -517,7 +516,7 @@ private fun PermissionsCard(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = if (allGranted) {
-                    "Permisos listos: la pantalla se apagará sola tras el resumen"
+                    "Permisos listos (Biometría y huella 100% compatibles)"
                 } else {
                     "Permisos necesarios (Actívalos una sola vez)"
                 },
@@ -551,10 +550,10 @@ private fun PermissionsCard(
             )
 
             PermissionRow(
-                icon = Icons.Default.Lock,
-                title = "4. Apagado inmediato de pantalla",
-                subtitle = "Permite apagar la pantalla forzosamente al terminar el tiempo",
-                granted = hasScreenLockCapability,
+                icon = Icons.Default.Fingerprint,
+                title = "4. Apagado compatible con Biometría",
+                subtitle = "Apaga la pantalla simulando el botón físico sin bloquear la huella ni el rostro",
+                granted = hasAccessibilityService,
                 onClick = onOpenAccessibilitySettings
             )
         }
@@ -822,11 +821,13 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
     }
 }
 
-private fun isScreenLockCapabilityGranted(context: Context): Boolean {
-    if (BriefAccessibilityService.isRunning()) return true
-    val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-    val adminComponent = ComponentName(context, BriefDeviceAdminReceiver::class.java)
-    return dpm.isAdminActive(adminComponent)
+private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+    val expectedComponentName = ComponentName(context, BriefAccessibilityService::class.java).flattenToString()
+    val enabledServices = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    ) ?: return false
+    return enabledServices.split(":").any { it.equals(expectedComponentName, ignoreCase = true) }
 }
 
 private fun openAccessibilitySettings(context: Context) {

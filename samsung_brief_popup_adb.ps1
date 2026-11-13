@@ -12,10 +12,13 @@ $apkPath = Join-Path $PSScriptRoot "app\build\outputs\apk\debug\app-debug.apk"
 $pkg = "com.appna.briefpopup"
 $listenerComponent = "$pkg/$pkg.BriefNotificationListenerService"
 $accessibilityComponent = "$pkg/$pkg.BriefAccessibilityService"
-$adminComponent = "$pkg/$pkg.BriefDeviceAdminReceiver"
 
 Write-Host "1. Verificando conexión con el celular por ADB..." -ForegroundColor Cyan
 & $adbPath devices
+
+# Si estaba activo el antiguo DeviceAdmin (que provocaba el bloqueo de huella), lo removemos
+Write-Host "`nRemoviendo Device Admin anterior si estuviera activo (para liberar biometría)..." -ForegroundColor Yellow
+& $adbPath shell dpm remove-active-admin "$pkg/$pkg.BriefDeviceAdminReceiver" 2>$null
 
 if (Test-Path $apkPath) {
     Write-Host "`n2. Instalando APK BriefWake Popup ($apkPath)..." -ForegroundColor Cyan
@@ -34,12 +37,9 @@ Write-Host "`n3. Concediendo permisos críticos automáticamente por ADB..." -Fo
 # Excluir de optimización de batería Doze / Deep Sleep de Samsung One UI
 & $adbPath shell dumpsys deviceidle whitelist +$pkg
 
-# Habilitar servicio de Accesibilidad para forzar el bloqueo/apagado instantáneo de pantalla al terminar el resumen
+# Habilitar servicio de Accesibilidad (simula botón físico sin deshabilitar huella ni rostro)
 & $adbPath shell settings put secure enabled_accessibility_services $accessibilityComponent
 & $adbPath shell settings put secure accessibility_enabled 1
-
-# Habilitar Device Admin como alternativa para apagar pantalla
-& $adbPath shell dpm set-active-admin $adminComponent
 
 Write-Host "`n4. (Opcional Samsung One UI) Activando soporte nativo de Resumen con pantalla apagada..." -ForegroundColor Cyan
 & $adbPath shell settings put system edge_lighting 1
@@ -48,4 +48,4 @@ Write-Host "`n4. (Opcional Samsung One UI) Activando soporte nativo de Resumen c
 Write-Host "`n5. Abriendo BriefWake Popup en el dispositivo..." -ForegroundColor Green
 & $adbPath shell am start -n "$pkg/$pkg.MainActivity"
 
-Write-Host "`n¡Listo! Ahora la pantalla se apagará inmediatamente después de pasar el tiempo del resumen." -ForegroundColor Green
+Write-Host "`n¡Listo! Ahora la pantalla se apaga al terminar el resumen y la huella/rostro funcionan con normalidad." -ForegroundColor Green

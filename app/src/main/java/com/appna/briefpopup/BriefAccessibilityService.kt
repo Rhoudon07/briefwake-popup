@@ -1,14 +1,13 @@
 package com.appna.briefpopup
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Context
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 
 class BriefAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // No necesitamos procesar eventos continuos de UI
+        // No se requiere inspeccionar eventos de UI
     }
 
     override fun onInterrupt() {
@@ -31,6 +30,11 @@ class BriefAccessibilityService : AccessibilityService() {
 
         fun isRunning(): Boolean = instance != null
 
+        /**
+         * Apaga la pantalla simulando el botón físico de encendido.
+         * En Android 9 (API 28) o superior, GLOBAL_ACTION_LOCK_SCREEN NO bloquea la biometría,
+         * permitiendo desbloquear inmediatamente con huella dactilar o reconocimiento facial.
+         */
         fun lockScreen(): Boolean {
             val s = instance ?: return false
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -41,4 +45,3 @@ class BriefAccessibilityService : AccessibilityService() {
         }
     }
 }
-
