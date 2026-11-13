@@ -129,20 +129,6 @@ class BriefNotificationListenerService : NotificationListenerService() {
             RecentNotificationActionStore.lastContentIntent = contentIntent
             RecentNotificationActionStore.lastPackageName = packageName
 
-            // 1. Despertar la pantalla inmediatamente con WakeLock a nivel de servicio
-            try {
-                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-                val wakeLock = pm.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
-                    "BriefWakePopup::ServiceWakeLock"
-                )
-                wakeLock.acquire(4000L)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error adquiriendo WakeLock", e)
-            }
-
             val popupIntent = Intent(context, BriefPopupActivity::class.java).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -159,7 +145,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
                 putExtra(BriefPopupActivity.EXTRA_TIMESTAMP, System.currentTimeMillis())
             }
 
-            // 2. Intentar lanzar directamente la actividad
+            // 1. Intentar lanzar directamente la actividad
             var directLaunchSuccess = false
             try {
                 context.startActivity(popupIntent)
@@ -168,7 +154,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
                 Log.w(TAG, "Direct startActivity falló o fue bloqueado por política de segundo plano", e)
             }
 
-            // 3. Mecanismo de respaldo Full Screen Intent (requerido en Android 10+ / Samsung One UI para arrancar sobre pantalla bloqueada)
+            // 2. Mecanismo de respaldo Full Screen Intent (requerido en Android 10+ / Samsung One UI para arrancar sobre pantalla bloqueada)
             try {
                 val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -205,7 +191,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
                     .setCategory(NotificationCompat.CATEGORY_ALARM)
                     .setFullScreenIntent(fullScreenPendingIntent, true)
                     .setAutoCancel(true)
-                    .setTimeoutAfter(3000L)
+                    .setTimeoutAfter(2500L)
                     .setSilent(true)
                     .build()
 
@@ -215,7 +201,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
                     try {
                         notificationManager.cancel(NOTIFICATION_ID)
                     } catch (_: Exception) {}
-                }, 2500L)
+                }, 2000L)
             } catch (e: Exception) {
                 Log.e(TAG, "Error disparando FullScreenIntent de respaldo", e)
             }

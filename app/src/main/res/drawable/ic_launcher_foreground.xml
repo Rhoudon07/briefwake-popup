@@ -4,20 +4,53 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Halo / Resplandor exterior de la pastilla estilo Edge Lighting -->
     <path
-        android:fillColor="#0D1117"
-        android:pathData="M0,0h108v108h-108z" />
+        android:fillColor="#2238BDF8"
+        android:pathData="M22,34 C22,23 31,14 42,14 L66,14 C77,14 86,23 86,34 L86,40 C86,51 77,60 66,60 L42,60 C31,60 22,51 22,40 Z" />
+
+    <!-- Pastilla de resumen flotante principal -->
+    <path
+        android:fillColor="#1E293B"
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="1.8"
+        android:pathData="M25,37 C25,27.06 33.06,19 43,19 L65,19 C74.94,19 83,27.06 83,37 L83,37 C83,46.94 74.94,55 65,55 L43,55 C33.06,55 25,46.94 25,37 Z" />
+
+    <!-- Barra superior brillante estilo Edge Light animada -->
     <path
         android:fillColor="#38BDF8"
-        android:pathData="M24,42 C24,35.37 29.37,30 36,30 L72,30 C78.63,30 84,35.37 84,42 L84,54 C84,60.63 78.63,66 72,66 L36,66 C29.37,66 24,60.63 24,54 Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M38,48 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M50,43h24v4h-24z" />
-    <path
-        android:fillColor="#E0F2FE"
-        android:pathData="M50,51h16v3h-16z" />
-</vector>
+        android:pathData="M38,20 L70,20 C73,20 75,21.5 75,23 C75,24.5 73,26 70,26 L38,26 C35,26 33,24.5 33,23 C33,21.5 35,20 38,20 Z" />
 
+    <!-- Círculo interior para el ícono de la app -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M37,37m-8,0a8,8 0 1,0 16,0a8,8 0 1,0 -16,0" />
+
+    <!-- Símbolo de campana de notificación dentro del círculo -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37,32 C35.6,32 34.5,33.1 34.5,34.5 L34.5,37.5 L33,39 L41,39 L39.5,37.5 L39.5,34.5 C39.5,33.1 38.4,32 37,32 Z M36.2,40 C36.2,40.4 36.6,40.8 37,40.8 C37.4,40.8 37.8,40.4 37.8,40 Z" />
+
+    <!-- Líneas de texto del mensaje de resumen -->
+    <path
+        android:fillColor="#F8FAFC"
+        android:pathData="M49,32 L72,32 C73.1,32 74,32.9 74,34 C74,35.1 73.1,36 72,36 L49,36 C47.9,36 47,35.1 47,34 C47,32.9 47.9,32 49,32 Z" />
+
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M49,40 L65,40 C65.8,40 66.5,40.7 66.5,41.5 C66.5,42.3 65.8,43 65,43 L49,43 C48.2,43 47.5,42.3 47.5,41.5 C47.5,40.7 48.2,40 49,40 Z" />
+
+    <!-- Rayos de pulso estéticos estilo despertar de pantalla OLED -->
+    <path
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,66 L54,76 M42,70 L36,78 M66,70 L72,78" />
+
+    <!-- Pequeño punto indicador AMOLED -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,84m-2.5,0a2.5,2.5 0 1,0 5,0a2.5,2.5 0 1,0 -5,0" />
+
+</vector>

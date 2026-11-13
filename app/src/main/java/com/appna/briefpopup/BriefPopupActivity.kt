@@ -78,6 +78,7 @@ import kotlinx.coroutines.delay
 class BriefPopupActivity : ComponentActivity() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var isUserInteracted = false
 
     private var pkgState by mutableStateOf("")
     private var appNameState by mutableStateOf("")
@@ -113,8 +114,13 @@ class BriefPopupActivity : ComponentActivity() {
                 durationSeconds = durationSeconds,
                 showEdgeGlow = showEdgeGlow,
                 triggerKey = triggerTimestampState,
-                onOpenNotification = { openNotificationAndFinish() },
-                onDismiss = { closeOverlay() }
+                onOpenNotification = {
+                    isUserInteracted = true
+                    openNotificationAndFinish()
+                },
+                onDismiss = {
+                    closeOverlay()
+                }
             )
         }
     }
@@ -144,9 +150,7 @@ class BriefPopupActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.addFlags(
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -163,13 +167,13 @@ class BriefPopupActivity : ComponentActivity() {
             releaseWakeLock()
             val durationSec = AppPreferences.getDurationSeconds(this)
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            // Usamos un WakeLock con duración ajustada. Al liberarse, la pantalla se apagará de inmediato.
             wakeLock = pm.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                    PowerManager.ON_AFTER_RELEASE,
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "BriefWakePopup::ScreenOffBriefWakeLock"
             ).apply {
-                acquire((durationSec + 2) * 1000L)
+                acquire((durationSec + 1) * 1000L)
             }
         } catch (_: Exception) {
         }
@@ -202,7 +206,9 @@ class BriefPopupActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {
             } finally {
-                closeOverlay()
+                releaseWakeLock()
+                finish()
+                overridePendingTransition(0, 0)
             }
         }
 
@@ -230,6 +236,19 @@ class BriefPopupActivity : ComponentActivity() {
 
     private fun closeOverlay() {
         releaseWakeLock()
+
+        // Desactivar flags para que el sistema apague la pantalla de inmediato y no la deje encendida en la pantalla de bloqueo
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setTurnScreenOn(false)
+            }
+            @Suppress("DEPRECATION")
+            window.clearFlags(
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        } catch (_: Exception) {}
+
         finish()
         overridePendingTransition(0, 0)
     }
@@ -297,7 +316,7 @@ private fun BriefPopupOverlayScreen(
         progressTarget = 0f
         delay(durationSeconds * 1000L)
         visible = false
-        delay(280L)
+        delay(200L)
         onDismiss()
     }
 
@@ -339,7 +358,7 @@ private fun BriefPopupOverlayScreen(
             enter = fadeIn(tween(220)) +
                 scaleIn(initialScale = 0.82f, animationSpec = tween(260, easing = FastOutSlowInEasing)) +
                 expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(280)),
-            exit = fadeOut(tween(220)) + scaleOut(targetScale = 0.88f, animationSpec = tween(220)),
+            exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.88f, animationSpec = tween(200)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 68.dp, start = 20.dp, end = 20.dp)
@@ -490,4 +509,3 @@ fun drawableToBitmap(drawable: Drawable, maxSizePx: Int): Bitmap {
     drawable.draw(canvas)
     return bitmap
 }
-
