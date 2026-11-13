@@ -50,7 +50,8 @@
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.BriefPopupOverlay" />
+            android:theme="@style/Theme.BriefPopupOverlay"
+            android:turnScreenOn="true" />
 
         <!-- Servicio que intercepta notificaciones entrantes -->
         <service
@@ -63,7 +64,35 @@
             </intent-filter>
         </service>
 
+        <!-- Servicio de Accesibilidad para forzar el apagado/bloqueo de pantalla inmediato -->
+        <service
+            android:name=".BriefAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Receptor Device Admin para apagar/bloquear pantalla como alternativa directa -->
+        <receiver
+            android:name=".BriefDeviceAdminReceiver"
+            android:description="@string/accessibility_service_description"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policies" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
-

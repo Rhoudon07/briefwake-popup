@@ -1,5 +1,6 @@
 package com.appna.briefpopup
 
+import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -127,6 +129,7 @@ fun BriefWakeMainScreen() {
     var hasNotificationAccess by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var ignoresBatteryOptimizations by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var hasScreenLockCapability by remember { mutableStateOf(isScreenLockCapabilityGranted(context)) }
 
     // Preferencias de usuario
     var masterEnabled by remember { mutableStateOf(AppPreferences.isMasterEnabled(context)) }
@@ -155,6 +158,7 @@ fun BriefWakeMainScreen() {
                 hasNotificationAccess = isNotificationListenerEnabled(context)
                 hasOverlayPermission = Settings.canDrawOverlays(context)
                 ignoresBatteryOptimizations = isIgnoringBatteryOptimizations(context)
+                hasScreenLockCapability = isScreenLockCapabilityGranted(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -242,9 +246,11 @@ fun BriefWakeMainScreen() {
                     hasNotificationAccess = hasNotificationAccess,
                     hasOverlayPermission = hasOverlayPermission,
                     ignoresBatteryOptimizations = ignoresBatteryOptimizations,
+                    hasScreenLockCapability = hasScreenLockCapability,
                     onOpenNotificationAccess = { openNotificationListenerSettings(context) },
                     onOpenOverlaySettings = { openOverlaySettings(context) },
-                    onRequestBatteryExemption = { requestIgnoreBatteryOptimizations(context) }
+                    onRequestBatteryExemption = { requestIgnoreBatteryOptimizations(context) },
+                    onOpenAccessibilitySettings = { openAccessibilitySettings(context) }
                 )
             }
 
@@ -267,7 +273,7 @@ fun BriefWakeMainScreen() {
                             text = if (testCountdown > 0) {
                                 "Apaga la pantalla de tu celular AHORA... Mostrando resumen en ${testCountdown}s"
                             } else {
-                                "Pulsa el botón y bloquea/apaga tu pantalla de inmediato. En 4 segundos se encenderá la pastilla estilo resumen sobre fondo negro AMOLED."
+                                "Pulsa el botón y bloquea tu pantalla de inmediato. Se encenderá el resumen y se apagará sola exactamente al terminar."
                             },
                             fontSize = 12.sp,
                             color = if (testCountdown > 0) Color(0xFF38BDF8) else Color(0xFF94A3B8)
@@ -488,11 +494,13 @@ private fun PermissionsCard(
     hasNotificationAccess: Boolean,
     hasOverlayPermission: Boolean,
     ignoresBatteryOptimizations: Boolean,
+    hasScreenLockCapability: Boolean,
     onOpenNotificationAccess: () -> Unit,
     onOpenOverlaySettings: () -> Unit,
-    onRequestBatteryExemption: () -> Unit
+    onRequestBatteryExemption: () -> Unit,
+    onOpenAccessibilitySettings: () -> Unit
 ) {
-    val allGranted = hasNotificationAccess && hasOverlayPermission && ignoresBatteryOptimizations
+    val allGranted = hasNotificationAccess && hasOverlayPermission && ignoresBatteryOptimizations && hasScreenLockCapability
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (allGranted) Color(0xFF0F241D) else Color(0xFF1E1B18)
@@ -509,7 +517,7 @@ private fun PermissionsCard(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = if (allGranted) {
-                    "Permisos listos para funcionar con pantalla apagada"
+                    "Permisos listos: la pantalla se apagará sola tras el resumen"
                 } else {
                     "Permisos necesarios (Actívalos una sola vez)"
                 },
@@ -521,7 +529,7 @@ private fun PermissionsCard(
             PermissionRow(
                 icon = Icons.Default.NotificationsActive,
                 title = "1. Acceso a Notificaciones",
-                subtitle = "Permite detectar cuándo llega un mensaje de las apps elegidas",
+                subtitle = "Detecta los mensajes de las apps seleccionadas",
                 granted = hasNotificationAccess,
                 onClick = onOpenNotificationAccess
             )
@@ -529,17 +537,25 @@ private fun PermissionsCard(
             PermissionRow(
                 icon = Icons.Default.Layers,
                 title = "2. Mostrar sobre otras apps",
-                subtitle = "Requerido en Android 10+ para encender la pastilla desde segundo plano",
+                subtitle = "Permite desplegar la pastilla sobre pantalla apagada",
                 granted = hasOverlayPermission,
                 onClick = onOpenOverlaySettings
             )
 
             PermissionRow(
                 icon = Icons.Default.BatteryChargingFull,
-                title = "3. Batería sin restricciones (One UI)",
-                subtitle = "Evita que Samsung cierre el detector cuando la pantalla lleva rato apagada",
+                title = "3. Batería sin restricciones",
+                subtitle = "Evita que One UI suspenda el detector en segundo plano",
                 granted = ignoresBatteryOptimizations,
                 onClick = onRequestBatteryExemption
+            )
+
+            PermissionRow(
+                icon = Icons.Default.Lock,
+                title = "4. Apagado inmediato de pantalla",
+                subtitle = "Permite apagar la pantalla forzosamente al terminar el tiempo",
+                granted = hasScreenLockCapability,
+                onClick = onOpenAccessibilitySettings
             )
         }
     }
@@ -806,6 +822,23 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
     }
 }
 
+private fun isScreenLockCapabilityGranted(context: Context): Boolean {
+    if (BriefAccessibilityService.isRunning()) return true
+    val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+    val adminComponent = ComponentName(context, BriefDeviceAdminReceiver::class.java)
+    return dpm.isAdminActive(adminComponent)
+}
+
+private fun openAccessibilitySettings(context: Context) {
+    try {
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {
+    }
+}
+
 private fun loadInstalledApps(context: Context): List<InstalledAppItem> {
     val pm = context.packageManager
     val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -841,4 +874,3 @@ private fun loadInstalledApps(context: Context): List<InstalledAppItem> {
         )
         .toList()
 }
-

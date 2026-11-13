@@ -11,6 +11,8 @@ if (-not (Test-Path $adbPath)) {
 $apkPath = Join-Path $PSScriptRoot "app\build\outputs\apk\debug\app-debug.apk"
 $pkg = "com.appna.briefpopup"
 $listenerComponent = "$pkg/$pkg.BriefNotificationListenerService"
+$accessibilityComponent = "$pkg/$pkg.BriefAccessibilityService"
+$adminComponent = "$pkg/$pkg.BriefDeviceAdminReceiver"
 
 Write-Host "1. Verificando conexión con el celular por ADB..." -ForegroundColor Cyan
 & $adbPath devices
@@ -32,13 +34,18 @@ Write-Host "`n3. Concediendo permisos críticos automáticamente por ADB..." -Fo
 # Excluir de optimización de batería Doze / Deep Sleep de Samsung One UI
 & $adbPath shell dumpsys deviceidle whitelist +$pkg
 
+# Habilitar servicio de Accesibilidad para forzar el bloqueo/apagado instantáneo de pantalla al terminar el resumen
+& $adbPath shell settings put secure enabled_accessibility_services $accessibilityComponent
+& $adbPath shell settings put secure accessibility_enabled 1
+
+# Habilitar Device Admin como alternativa para apagar pantalla
+& $adbPath shell dpm set-active-admin $adminComponent
+
 Write-Host "`n4. (Opcional Samsung One UI) Activando soporte nativo de Resumen con pantalla apagada..." -ForegroundColor Cyan
-# En Samsung One UI: edge_lighting=1 (Estilo Resumen/Brief), edge_lighting_show_condition=0 (Mostrar siempre: pantalla encendida y apagada)
 & $adbPath shell settings put system edge_lighting 1
 & $adbPath shell settings put system edge_lighting_show_condition 0
 
 Write-Host "`n5. Abriendo BriefWake Popup en el dispositivo..." -ForegroundColor Green
 & $adbPath shell am start -n "$pkg/$pkg.MainActivity"
 
-Write-Host "`n¡Listo! Ya puedes elegir las apps en BriefWake Popup y probar con la pantalla apagada." -ForegroundColor Green
-
+Write-Host "`n¡Listo! Ahora la pantalla se apagará inmediatamente después de pasar el tiempo del resumen." -ForegroundColor Green
