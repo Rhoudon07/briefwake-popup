@@ -68,9 +68,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,8 +88,6 @@ class BriefPopupActivity : ComponentActivity() {
     @Volatile
     private var isUserInteracted = false
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var unlockPollRunnable: Runnable? = null
     private var userPresentReceiver: BroadcastReceiver? = null
 
     private var pkgState by mutableStateOf("")
@@ -173,14 +173,12 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * Detección activa en milisegundos del desbloqueo por huella dactilar, rostro o PIN:
-     * 1. BroadcastReceiver para ACTION_USER_PRESENT.
-     * 2. Bucle ligero de muestreo (polling de 150ms) con KeyguardManager.isKeyguardLocked.
-     * En cuanto se detecta que el usuario colocó la huella o se autenticó, la notificación
-     * se destruye de inmediato sin esperar a que expiren los segundos configurados.
+     * Detección reactiva de desbloqueo por huella dactilar, rostro o PIN:
+     * 1. BroadcastReceiver para ACTION_USER_PRESENT emitido por el sistema al desbloquear.
+     * 2. onWindowFocusChanged / onResume para cambios inmediatos de foco.
+     * Cero bucles de polling para permitir que la CPU permanezca en reposo.
      */
     private fun setupUnlockDetection() {
-        // Receptor del evento de desbloqueo emitido por el sistema Android
         userPresentReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (Intent.ACTION_USER_PRESENT == intent?.action) {
@@ -190,21 +188,6 @@ class BriefPopupActivity : ComponentActivity() {
         }
         val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
         registerReceiver(userPresentReceiver, filter)
-
-        // Polling ultra ligero para capturar el instante exacto en que la huella desbloquea el Keyguard
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        unlockPollRunnable = object : Runnable {
-            override fun run() {
-                if (!isFinishing && !isDestroyed) {
-                    if (!km.isKeyguardLocked) {
-                        closeActivitySilently()
-                        return
-                    }
-                    mainHandler.postDelayed(this, 150L)
-                }
-            }
-        }
-        mainHandler.postDelayed(unlockPollRunnable!!, 150L)
     }
 
     private fun checkIfAlreadyUnlockedAndFinish() {
@@ -371,8 +354,6 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     private fun stopUnlockDetection() {
-        unlockPollRunnable?.let { mainHandler.removeCallbacks(it) }
-        unlockPollRunnable = null
         userPresentReceiver?.let {
             try {
                 unregisterReceiver(it)
@@ -394,6 +375,22 @@ class BriefPopupActivity : ComponentActivity() {
         const val EXTRA_MESSAGE = "extra_message"
         const val EXTRA_ACCENT_COLOR = "extra_accent_color"
         const val EXTRA_TIMESTAMP = "extra_timestamp"
+
+        // Caché en memoria para evitar llamadas IPC reiteradas y decodificación de bitmaps
+        private val iconCache = android.util.LruCache<String, Bitmap>(30)
+
+        fun getAppIcon(context: Context, packageName: String): Bitmap? {
+            val cached = iconCache.get(packageName)
+            if (cached != null) return cached
+            return try {
+                val drawable = context.packageManager.getApplicationIcon(packageName)
+                val bitmap = drawableToBitmap(drawable, 96)
+                iconCache.put(packageName, bitmap)
+                bitmap
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 }
 
@@ -417,12 +414,7 @@ private fun BriefPopupOverlayScreen(
     var progressTarget by remember(triggerKey) { mutableStateOf(1f) }
 
     val appIconBitmap = remember(packageName) {
-        try {
-            val drawable = context.packageManager.getApplicationIcon(packageName)
-            drawableToBitmap(drawable, 96)
-        } catch (_: Exception) {
-            null
-        }
+        BriefPopupActivity.getAppIcon(context, packageName)
     }
 
     val animatedProgress by animateFloatAsState(
@@ -441,6 +433,18 @@ private fun BriefPopupOverlayScreen(
         ),
         label = "glow_alpha"
     )
+
+    val topGlowBrush = remember(accentColor) {
+        Brush.horizontalGradient(
+            colors = listOf(
+                Color.Transparent,
+                accentColor.copy(alpha = 0.7f),
+                Color.White.copy(alpha = 0.5f),
+                accentColor.copy(alpha = 0.7f),
+                Color.Transparent
+            )
+        )
+    }
 
     LaunchedEffect(triggerKey) {
         visible = true
@@ -462,24 +466,15 @@ private fun BriefPopupOverlayScreen(
                 onClick = { onManualDismiss() }
             )
     ) {
-        // Línea sutil superior Edge Lighting sobre la pantalla
+        // Línea sutil superior Edge Lighting sobre la pantalla (dibujada en GPU sin recomponer la UI)
         if (showEdgeGlow && visible) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp)
                     .align(Alignment.TopCenter)
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                accentColor.copy(alpha = glowAlpha * 0.7f),
-                                Color.White.copy(alpha = glowAlpha * 0.5f),
-                                accentColor.copy(alpha = glowAlpha * 0.7f),
-                                Color.Transparent
-                            )
-                        )
-                    )
+                    .graphicsLayer { alpha = glowAlpha }
+                    .background(topGlowBrush)
             )
         }
 
@@ -495,35 +490,37 @@ private fun BriefPopupOverlayScreen(
                 .padding(top = 58.dp, start = 18.dp, end = 18.dp)
         ) {
             val pillShape = RoundedCornerShape(26.dp)
-            Column(
+            val borderBrush = remember(showEdgeGlow, accentColor) {
+                if (showEdgeGlow) {
+                    Brush.horizontalGradient(
+                        listOf(
+                            accentColor.copy(alpha = 0.85f),
+                            Color.White.copy(alpha = 0.6f),
+                            accentColor.copy(alpha = 0.85f)
+                        )
+                    )
+                } else {
+                    Brush.horizontalGradient(listOf(Color(0xFF334155), Color(0xFF334155)))
+                }
+            }
+
+            Box(
                 modifier = Modifier
                     .widthIn(min = 230.dp, max = 380.dp)
                     .clip(pillShape)
                     .background(Color(0xFF11141C))
-                    .border(
-                        width = 1.2.dp,
-                        brush = Brush.horizontalGradient(
-                            colors = if (showEdgeGlow) {
-                                listOf(
-                                    accentColor.copy(alpha = glowAlpha * 0.85f),
-                                    Color.White.copy(alpha = 0.6f),
-                                    accentColor.copy(alpha = glowAlpha * 0.85f)
-                                )
-                            } else {
-                                listOf(Color(0xFF334155), Color(0xFF334155))
-                            }
-                        ),
-                        shape = pillShape
-                    )
                     .clickable { onOpenNotification() }
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                     // Icono de la aplicación
                     Box(
                         modifier = Modifier
@@ -606,22 +603,37 @@ private fun BriefPopupOverlayScreen(
                     }
                 }
 
-                // Línea inferior de cuenta regresiva
+                // Línea inferior de cuenta regresiva (dibujada en canvas de GPU sin provocar recomposición)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(2.dp)
                         .background(Color.Black)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction = animatedProgress.coerceIn(0f, 1f))
-                            .height(2.dp)
-                            .background(accentColor)
-                    )
-                }
+                        .drawBehind {
+                            val progress = animatedProgress.coerceIn(0f, 1f)
+                            if (progress > 0f) {
+                                drawRect(
+                                    color = accentColor,
+                                    size = androidx.compose.ui.geometry.Size(size.width * progress, size.height)
+                                )
+                            }
+                        }
+                )
             }
+
+            // Halo / Borde exterior animado en la fase de dibujo de la GPU
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = if (showEdgeGlow) glowAlpha else 1f }
+                    .border(
+                        width = 1.2.dp,
+                        brush = borderBrush,
+                        shape = pillShape
+                    )
+            )
         }
+    }
 
         // Indicador inferior de carga de batería (Estilo AOD Samsung)
         if (batteryStatus.isCharging && batteryStatus.level >= 0) {

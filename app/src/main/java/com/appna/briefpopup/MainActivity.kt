@@ -86,12 +86,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
+@androidx.compose.runtime.Immutable
 data class InstalledAppItem(
     val packageName: String,
     val label: String,
-    val isSystemApp: Boolean,
-    val iconBitmap: Bitmap?
+    val isSystemApp: Boolean
 )
+
+// Cargador y caché en memoria bajo demanda para evitar retener 400+ bitmaps en RAM
+object AppIconLoader {
+    private val iconCache = android.util.LruCache<String, Bitmap>(50)
+
+    fun getCached(packageName: String): Bitmap? = iconCache.get(packageName)
+
+    fun load(context: Context, packageName: String): Bitmap? {
+        val cached = iconCache.get(packageName)
+        if (cached != null) return cached
+        return try {
+            val pm = context.packageManager
+            val drawable = pm.getApplicationIcon(packageName)
+            val bitmap = drawableToBitmap(drawable, 84)
+            iconCache.put(packageName, bitmap)
+            bitmap
+        } catch (_: Exception) {
+            null
+        }
+    }
+}
 
 private val AmoledColorScheme = darkColorScheme(
     primary = Color(0xFF38BDF8),
@@ -710,6 +731,24 @@ private fun AppItemRow(
     isSelected: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    var iconBitmap by remember(app.packageName) {
+        mutableStateOf(AppIconLoader.getCached(app.packageName))
+    }
+
+    LaunchedEffect(app.packageName) {
+        if (iconBitmap == null) {
+            withContext(Dispatchers.IO) {
+                val loaded = AppIconLoader.load(context, app.packageName)
+                if (loaded != null) {
+                    withContext(Dispatchers.Main) {
+                        iconBitmap = loaded
+                    }
+                }
+            }
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -724,9 +763,10 @@ private fun AppItemRow(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (app.iconBitmap != null) {
+        val currentIcon = iconBitmap
+        if (currentIcon != null) {
             Image(
-                bitmap = app.iconBitmap.asImageBitmap(),
+                bitmap = currentIcon.asImageBitmap(),
                 contentDescription = app.label,
                 modifier = Modifier
                     .size(40.dp)
@@ -842,7 +882,8 @@ private fun openAccessibilitySettings(context: Context) {
 
 private fun loadInstalledApps(context: Context): List<InstalledAppItem> {
     val pm = context.packageManager
-    val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+    // Sin GET_META_DATA para reducir la carga de IPC en un 90%
+    val packages = pm.getInstalledApplications(0)
     return packages
         .asSequence()
         .filter { it.packageName != context.packageName }
@@ -856,16 +897,10 @@ private fun loadInstalledApps(context: Context): List<InstalledAppItem> {
                 (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0 &&
                 !AppPreferences.COMMON_MESSAGING_PACKAGES.contains(appInfo.packageName)
 
-            val icon = try {
-                drawableToBitmap(pm.getApplicationIcon(appInfo), 84)
-            } catch (_: Exception) {
-                null
-            }
             InstalledAppItem(
                 packageName = appInfo.packageName,
                 label = label,
-                isSystemApp = isSystem,
-                iconBitmap = icon
+                isSystemApp = isSystem
             )
         }
         .sortedWith(

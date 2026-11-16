@@ -37,21 +37,43 @@ object AppPreferences {
         "com.Slack"
     )
 
+    // Caché en memoria RAM para evitar lecturas continuas a disco (SharedPreferences)
+    // en cada notificación entrante del sistema
+    @Volatile private var cachedMasterEnabled: Boolean? = null
+    @Volatile private var cachedEnabledPackages: Set<String>? = null
+    @Volatile private var cachedOnlyScreenOff: Boolean? = null
+    @Volatile private var cachedDurationSeconds: Int? = null
+    @Volatile private var cachedShowEdgeGlow: Boolean? = null
+    @Volatile private var cachedHideSensitive: Boolean? = null
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun isMasterEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_MASTER_ENABLED, true)
+    fun isMasterEnabled(context: Context): Boolean {
+        val cached = cachedMasterEnabled
+        if (cached != null) return cached
+        val value = prefs(context).getBoolean(KEY_MASTER_ENABLED, true)
+        cachedMasterEnabled = value
+        return value
+    }
 
     fun setMasterEnabled(context: Context, enabled: Boolean) {
+        cachedMasterEnabled = enabled
         prefs(context).edit().putBoolean(KEY_MASTER_ENABLED, enabled).apply()
     }
 
-    fun getEnabledPackages(context: Context): Set<String> =
-        prefs(context).getStringSet(KEY_ENABLED_PACKAGES, emptySet())?.toSet() ?: emptySet()
+    fun getEnabledPackages(context: Context): Set<String> {
+        val cached = cachedEnabledPackages
+        if (cached != null) return cached
+        val value = prefs(context).getStringSet(KEY_ENABLED_PACKAGES, emptySet())?.toSet() ?: emptySet()
+        cachedEnabledPackages = value
+        return value
+    }
 
     fun setEnabledPackages(context: Context, packages: Set<String>) {
-        prefs(context).edit().putStringSet(KEY_ENABLED_PACKAGES, packages.toSet()).apply()
+        val copy = packages.toSet()
+        cachedEnabledPackages = copy
+        prefs(context).edit().putStringSet(KEY_ENABLED_PACKAGES, copy).apply()
     }
 
     fun togglePackage(context: Context, packageName: String, enabled: Boolean): Set<String> {
@@ -61,38 +83,64 @@ object AppPreferences {
         } else {
             current.remove(packageName)
         }
-        setEnabledPackages(context, current)
-        return current
+        val immutableSet = current.toSet()
+        setEnabledPackages(context, immutableSet)
+        return immutableSet
     }
 
     fun isPackageEnabled(context: Context, packageName: String): Boolean =
         getEnabledPackages(context).contains(packageName)
 
-    fun isOnlyWhenScreenOff(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_ONLY_SCREEN_OFF, true)
+    fun isOnlyWhenScreenOff(context: Context): Boolean {
+        val cached = cachedOnlyScreenOff
+        if (cached != null) return cached
+        val value = prefs(context).getBoolean(KEY_ONLY_SCREEN_OFF, true)
+        cachedOnlyScreenOff = value
+        return value
+    }
 
     fun setOnlyWhenScreenOff(context: Context, onlyOff: Boolean) {
+        cachedOnlyScreenOff = onlyOff
         prefs(context).edit().putBoolean(KEY_ONLY_SCREEN_OFF, onlyOff).apply()
     }
 
-    fun getDurationSeconds(context: Context): Int =
-        prefs(context).getInt(KEY_DURATION_SECONDS, 5).coerceIn(2, 20)
-
-    fun setDurationSeconds(context: Context, seconds: Int) {
-        prefs(context).edit().putInt(KEY_DURATION_SECONDS, seconds.coerceIn(2, 20)).apply()
+    fun getDurationSeconds(context: Context): Int {
+        val cached = cachedDurationSeconds
+        if (cached != null) return cached
+        val value = prefs(context).getInt(KEY_DURATION_SECONDS, 5).coerceIn(2, 20)
+        cachedDurationSeconds = value
+        return value
     }
 
-    fun isShowEdgeGlow(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_SHOW_EDGE_GLOW, true)
+    fun setDurationSeconds(context: Context, seconds: Int) {
+        val safeSec = seconds.coerceIn(2, 20)
+        cachedDurationSeconds = safeSec
+        prefs(context).edit().putInt(KEY_DURATION_SECONDS, safeSec).apply()
+    }
+
+    fun isShowEdgeGlow(context: Context): Boolean {
+        val cached = cachedShowEdgeGlow
+        if (cached != null) return cached
+        val value = prefs(context).getBoolean(KEY_SHOW_EDGE_GLOW, true)
+        cachedShowEdgeGlow = value
+        return value
+    }
 
     fun setShowEdgeGlow(context: Context, show: Boolean) {
+        cachedShowEdgeGlow = show
         prefs(context).edit().putBoolean(KEY_SHOW_EDGE_GLOW, show).apply()
     }
 
-    fun isHideSensitive(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_HIDE_SENSITIVE, false)
+    fun isHideSensitive(context: Context): Boolean {
+        val cached = cachedHideSensitive
+        if (cached != null) return cached
+        val value = prefs(context).getBoolean(KEY_HIDE_SENSITIVE, false)
+        cachedHideSensitive = value
+        return value
+    }
 
     fun setHideSensitive(context: Context, hide: Boolean) {
+        cachedHideSensitive = hide
         prefs(context).edit().putBoolean(KEY_HIDE_SENSITIVE, hide).apply()
     }
 
@@ -100,6 +148,7 @@ object AppPreferences {
         val p = prefs(context)
         if (!p.getBoolean(KEY_INITIALIZED_DEFAULTS, false)) {
             val defaults = installedPackages.intersect(COMMON_MESSAGING_PACKAGES)
+            cachedEnabledPackages = defaults
             p.edit()
                 .putStringSet(KEY_ENABLED_PACKAGES, defaults)
                 .putBoolean(KEY_INITIALIZED_DEFAULTS, true)

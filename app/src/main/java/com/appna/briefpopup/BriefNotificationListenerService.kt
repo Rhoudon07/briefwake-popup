@@ -51,9 +51,10 @@ class BriefNotificationListenerService : NotificationListenerService() {
             return
         }
 
+        val appName = getAppLabel(context, pkg)
         val rawTitle = extras?.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
             ?: extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-            ?: getAppLabel(context, pkg)
+            ?: appName
 
         val rawText = extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
             ?: extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
@@ -80,7 +81,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
         triggerBriefPopup(
             context = context,
             packageName = pkg,
-            appName = getAppLabel(context, pkg),
+            appName = appName,
             title = rawTitle.trim(),
             message = rawText.trim(),
             accentColor = accentColor,
@@ -93,13 +94,44 @@ class BriefNotificationListenerService : NotificationListenerService() {
         private const val CHANNEL_ID = "brief_wake_popup_channel"
         private const val NOTIFICATION_ID = 9911
 
+        @Volatile
+        private var isChannelCreated = false
+
+        // Caché en memoria para evitar llamadas IPC reiteradas a PackageManagerService
+        private val appLabelCache = android.util.LruCache<String, String>(60)
+
         fun getAppLabel(context: Context, packageName: String): String {
-            return try {
+            val cached = appLabelCache.get(packageName)
+            if (cached != null) return cached
+
+            val label = try {
                 val pm = context.packageManager
                 val info = pm.getApplicationInfo(packageName, 0)
                 pm.getApplicationLabel(info).toString()
             } catch (_: Exception) {
                 packageName
+            }
+            appLabelCache.put(packageName, label)
+            return label
+        }
+
+        private fun ensureNotificationChannel(notificationManager: NotificationManager) {
+            if (isChannelCreated) return
+            synchronized(this) {
+                if (!isChannelCreated && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val channel = NotificationChannel(
+                        CHANNEL_ID,
+                        "BriefWake Overlay Service",
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = "Canal de lanzamiento para pantalla bloqueada"
+                        setSound(null, null)
+                        enableVibration(false)
+                        setShowBadge(false)
+                    }
+                    notificationManager.createNotificationChannel(channel)
+                    isChannelCreated = true
+                }
             }
         }
 
@@ -169,19 +201,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
                 )
 
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val channel = NotificationChannel(
-                        CHANNEL_ID,
-                        "BriefWake Overlay Service",
-                        NotificationManager.IMPORTANCE_HIGH
-                    ).apply {
-                        description = "Canal de lanzamiento para pantalla bloqueada"
-                        setSound(null, null)
-                        enableVibration(false)
-                        setShowBadge(false)
-                    }
-                    notificationManager.createNotificationChannel(channel)
-                }
+                ensureNotificationChannel(notificationManager)
 
                 val headsUpNotification = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_launcher_foreground)
