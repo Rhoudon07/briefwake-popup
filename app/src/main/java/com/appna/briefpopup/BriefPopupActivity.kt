@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,6 +47,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Icon
@@ -106,6 +108,9 @@ class BriefPopupActivity : ComponentActivity() {
                 AppPreferences.isHideSensitive(this@BriefPopupActivity)
             }
 
+            // Monitoreo en tiempo real del estado de batería (para simular el indicador de carga si está enchufado)
+            val batteryStatus by rememberBatteryStatus()
+
             BriefPopupOverlayScreen(
                 packageName = pkgState,
                 appName = appNameState,
@@ -114,6 +119,7 @@ class BriefPopupActivity : ComponentActivity() {
                 accentColor = Color(accentColorState),
                 durationSeconds = durationSeconds,
                 showEdgeGlow = showEdgeGlow,
+                batteryStatus = batteryStatus,
                 triggerKey = triggerTimestampState,
                 onOpenNotification = {
                     isUserInteracted = true
@@ -142,7 +148,7 @@ class BriefPopupActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Si el usuario desbloqueó el celular (por ejemplo usando el sensor de huellas físico
+        // Si el usuario desbloqueó el celular (por ejemplo usando sensor de huellas físico
         // o botón de encendido), cerramos la pastilla de inmediato para no estorbar en el launcher.
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (!km.isKeyguardLocked && !isUserInteracted) {
@@ -152,7 +158,6 @@ class BriefPopupActivity : ComponentActivity() {
 
     override fun onUserInteraction() {
         super.onUserInteraction()
-        // Al tocar la pantalla, cancelamos el apagado automático por timeout
         isUserInteracted = true
     }
 
@@ -167,11 +172,12 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * Capa translúcida flotante sobre la pantalla bloqueada / AOD.
-     * Al ser translúcida:
-     * 1. NO tapa la animación de carga de batería nativa ni el reloj del AOD.
-     * 2. Si el usuario toca el lector de huellas dactilares o presiona encendido,
-     *    se desbloquea al primer intento sin quedarse en negro.
+     * Emulación de Always-On Display (AOD) en negro absoluto (#000000 puro).
+     * En dispositivos que no traen AOD nativo de fábrica (como Galaxy A17/A1x):
+     * 1. La pantalla se cubre 100% de negro puro (#000000). En paneles Super AMOLED,
+     *    los píxeles negros están físicamente apagados con consumo de energía nulo.
+     * 2. Oculta la barra de estado y de navegación para que no se vea la pantalla de bloqueo de Samsung.
+     * 3. Deja el brillo del sistema intacto para que cuando pongas la huella, el desbloqueo sea instantáneo al primer intento.
      */
     private fun configureAodLockScreenMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -184,7 +190,6 @@ class BriefPopupActivity : ComponentActivity() {
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
 
-        // Dejar que el sistema gestione el brillo natural (evita dejar la pantalla en negro al desbloquear)
         val layoutParams = window.attributes
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode =
@@ -207,7 +212,7 @@ class BriefPopupActivity : ComponentActivity() {
             val durationSec = AppPreferences.getDurationSeconds(this)
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(
-                PowerManager.SCREEN_DIM_WAKE_LOCK or
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
                     PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "BriefWakePopup::AodScreenOffWakeLock"
             ).apply {
@@ -344,6 +349,7 @@ private fun BriefPopupOverlayScreen(
     accentColor: Color,
     durationSeconds: Int,
     showEdgeGlow: Boolean,
+    batteryStatus: BatteryStatus,
     triggerKey: Long,
     onOpenNotification: () -> Unit,
     onManualDismiss: () -> Unit,
@@ -388,10 +394,11 @@ private fun BriefPopupOverlayScreen(
         onTimeoutExpired()
     }
 
-    // Contenedor Translúcido: no oculta el indicador de carga del cargador ni el AOD nativo
+    // Lienzo AOD Negro Absoluto (#000000): En Super AMOLED los píxeles negros están físicamente apagados
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.Black)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -419,7 +426,7 @@ private fun BriefPopupOverlayScreen(
             )
         }
 
-        // Pastilla flotante (Fondo negro OLED con borde, sin tapar el resto de la pantalla)
+        // Pastilla de notificación estilo Resumen emergente
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(tween(180)) +
@@ -435,7 +442,7 @@ private fun BriefPopupOverlayScreen(
                 modifier = Modifier
                     .widthIn(min = 230.dp, max = 380.dp)
                     .clip(pillShape)
-                    .background(Color.Black)
+                    .background(Color(0xFF11141C))
                     .border(
                         width = 1.2.dp,
                         brush = Brush.horizontalGradient(
@@ -488,7 +495,7 @@ private fun BriefPopupOverlayScreen(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // Textos de notificación estilo AOD
+                    // Textos de notificación estilo Resumen
                     Column(
                         modifier = Modifier.weight(1f)
                     ) {
@@ -556,6 +563,33 @@ private fun BriefPopupOverlayScreen(
                             .background(accentColor)
                     )
                 }
+            }
+        }
+
+        // Indicador inferior de carga de batería (Estilo AOD Samsung)
+        // Solo se muestra si el dispositivo está conectado al cargador, exactamente igual que el AOD de Samsung
+        if (batteryStatus.isCharging && batteryStatus.level >= 0) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 28.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = "Cargando",
+                    tint = Color(0xFF10B981),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "${batteryStatus.level}% Carga de batería",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal
+                )
             }
         }
     }

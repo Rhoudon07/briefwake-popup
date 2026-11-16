@@ -5,17 +5,17 @@
         <item name="android:navigationBarColor">#090D16</item>
     </style>
 
-    <!-- Tema Translúcido Flotante sobre AOD / Lockscreen nativo -->
+    <!-- Tema AOD Completo para dispositivos sin Always-On Display nativo (Samsung Galaxy A1x / A0x) -->
     <style name="Theme.BriefPopupOverlay" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:colorBackground">@android:color/transparent</item>
-        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
         <item name="android:windowAnimationStyle">@null</item>
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowNoDisplay">false</item>
+        <item name="android:windowIsTranslucent">false</item>
         <item name="android:windowShowWallpaper">false</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>
