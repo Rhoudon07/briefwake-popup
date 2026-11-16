@@ -92,7 +92,7 @@ class BriefPopupActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         isUserInteracted = false
 
-        configureLockScreenAndFullscreen()
+        configureAodLockScreenMode()
         extractIntentData(intent)
         acquireTemporaryWakeLock()
 
@@ -125,7 +125,6 @@ class BriefPopupActivity : ComponentActivity() {
                     turnOffScreenAndFinish()
                 },
                 onTimeoutExpired = {
-                    // Si el usuario ya interactuó tocando la pastilla, NO apagar la pantalla
                     if (!isUserInteracted) {
                         turnOffScreenAndFinish()
                     }
@@ -152,7 +151,14 @@ class BriefPopupActivity : ComponentActivity() {
         triggerTimestampState = intent.getLongExtra(EXTRA_TIMESTAMP, System.currentTimeMillis())
     }
 
-    private fun configureLockScreenAndFullscreen() {
+    /**
+     * Configuración idéntica a la pantalla AOD (Always-On Display) o texto de carga con pantalla apagada.
+     * En paneles OLED/AMOLED (Samsung Galaxy y similares):
+     * - El fondo #000000 mantiene el 99% de los píxeles físicamente apagados con consumo casi nulo.
+     * - Brillo ultra bajo y tenue (screenBrightness = 0.03f) para que parezca que la pantalla sigue apagada,
+     *   iluminando exclusivamente las letras/pastilla igual que la animación de carga de batería.
+     */
+    private fun configureAodLockScreenMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -162,6 +168,15 @@ class BriefPopupActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
+
+        // Brillo mínimo tipo AOD para que la pantalla no dé destello ni se vea encendida
+        val layoutParams = window.attributes
+        layoutParams.screenBrightness = 0.035f
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        window.attributes = layoutParams
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).let { controller ->
@@ -178,9 +193,9 @@ class BriefPopupActivity : ComponentActivity() {
             val durationSec = AppPreferences.getDurationSeconds(this)
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                PowerManager.SCREEN_DIM_WAKE_LOCK or
                     PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "BriefWakePopup::ScreenOffBriefWakeLock"
+                "BriefWakePopup::AodScreenOffWakeLock"
             ).apply {
                 acquire((durationSec + 1) * 1000L)
             }
@@ -200,15 +215,16 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * El usuario tocó la pastilla de notificación emergente:
-     * 1. Mantiene la pantalla encendida.
-     * 2. Solicita al sistema el desbloqueo (requestDismissKeyguard) permitiendo huella, rostro o PIN.
-     * 3. Abre la app/conversación correspondiente sin apagar la pantalla.
+     * Si el usuario toca la pastilla:
+     * Restablece el brillo normal y solicita el desbloqueo (huella, rostro o PIN).
      */
     private fun openNotificationAndProceedUnlock() {
         isUserInteracted = true
 
-        // Mantener la pantalla encendida para el proceso de desbloqueo e interacción
+        // Restaurar brillo estándar del sistema al interactuar
+        val layoutParams = window.attributes
+        layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = layoutParams
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
@@ -241,7 +257,6 @@ class BriefPopupActivity : ComponentActivity() {
                     }
 
                     override fun onDismissCancelled() {
-                        // El usuario canceló el desbloqueo explícitamente: cerramos
                         releaseWakeLock()
                         finish()
                         overridePendingTransition(0, 0)
@@ -258,15 +273,13 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * NO se interactuó con la notificación (o se tocó la X para descartar):
-     * Apaga la pantalla inmediatamente para ahorrar batería.
+     * Apaga la pantalla sin transiciones al expirar el tiempo del resumen o tocar cerrar
      */
     private fun turnOffScreenAndFinish() {
         if (isUserInteracted) return
 
         releaseWakeLock()
 
-        // 1. Limpiar flags para no forzar la pantalla encendida en el LockScreen
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setTurnScreenOn(false)
@@ -278,13 +291,12 @@ class BriefPopupActivity : ComponentActivity() {
             )
         } catch (_: Exception) {}
 
-        // 2. Apagar pantalla forzosamente mediante Accesibilidad (simula botón de encendido sin afectar biometría)
+        // Apagar inmediatamente simulando el botón físico (sin deshabilitar biometría)
         var screenTurnedOff = false
         if (BriefAccessibilityService.isRunning()) {
             screenTurnedOff = BriefAccessibilityService.lockScreen()
         }
 
-        // 3. Fallback: atenuar brillo en negro AMOLED
         if (!screenTurnedOff) {
             try {
                 val lp = window.attributes
@@ -348,7 +360,7 @@ private fun BriefPopupOverlayScreen(
     val infiniteTransition = rememberInfiniteTransition(label = "edge_pulse")
     val glowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.35f,
-        targetValue = 0.90f,
+        targetValue = 0.85f,
         animationSpec = infiniteRepeatable(
             animation = tween(900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -365,7 +377,7 @@ private fun BriefPopupOverlayScreen(
         onTimeoutExpired()
     }
 
-    // Fondo 100% negro AMOLED: los píxeles negros quedan apagados en pantallas OLED/AMOLED
+    // Fondo 100% negro AMOLED (#000000 absoluto): píxeles físicamente apagados
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -376,20 +388,20 @@ private fun BriefPopupOverlayScreen(
                 onClick = { onManualDismiss() }
             )
     ) {
-        // Iluminación sutil superior (Edge Lighting estilo Samsung One UI)
+        // Línea sutil superior Edge Lighting sobre la pantalla apagada
         if (showEdgeGlow && visible) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
+                    .height(3.dp)
                     .align(Alignment.TopCenter)
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                accentColor.copy(alpha = glowAlpha),
-                                Color.White.copy(alpha = glowAlpha * 0.7f),
-                                accentColor.copy(alpha = glowAlpha),
+                                accentColor.copy(alpha = glowAlpha * 0.7f),
+                                Color.White.copy(alpha = glowAlpha * 0.5f),
+                                accentColor.copy(alpha = glowAlpha * 0.7f),
                                 Color.Transparent
                             )
                         )
@@ -397,40 +409,35 @@ private fun BriefPopupOverlayScreen(
             )
         }
 
-        // Píldora / Pastilla de Resumen emergente (Posición superior estilo One UI Brief Popup)
+        // Pastilla flotante estilo AOD (Letras y elementos nítidos sobre pantalla negra apagada)
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(tween(220)) +
-                scaleIn(initialScale = 0.82f, animationSpec = tween(260, easing = FastOutSlowInEasing)) +
-                expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(280)),
+            enter = fadeIn(tween(200)) +
+                scaleIn(initialScale = 0.85f, animationSpec = tween(240, easing = FastOutSlowInEasing)) +
+                expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(260)),
             exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.88f, animationSpec = tween(180)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 68.dp, start = 20.dp, end = 20.dp)
+                .padding(top = 64.dp, start = 20.dp, end = 20.dp)
         ) {
-            val pillShape = RoundedCornerShape(32.dp)
+            val pillShape = RoundedCornerShape(28.dp)
             Column(
                 modifier = Modifier
-                    .widthIn(min = 240.dp, max = 380.dp)
-                    .shadow(
-                        elevation = if (showEdgeGlow) 20.dp else 6.dp,
-                        shape = pillShape,
-                        ambientColor = accentColor,
-                        spotColor = accentColor
-                    )
+                    .widthIn(min = 230.dp, max = 380.dp)
                     .clip(pillShape)
-                    .background(Color(0xFF12161F))
+                    // Fondo negro puro sin tarjeta gris para fundirse perfectamente con la pantalla apagada
+                    .background(Color.Black)
                     .border(
-                        width = if (showEdgeGlow) 1.6.dp else 1.dp,
+                        width = 1.2.dp,
                         brush = Brush.horizontalGradient(
                             colors = if (showEdgeGlow) {
                                 listOf(
-                                    accentColor.copy(alpha = glowAlpha),
-                                    Color.White.copy(alpha = 0.55f),
-                                    accentColor.copy(alpha = glowAlpha)
+                                    accentColor.copy(alpha = glowAlpha * 0.85f),
+                                    Color.White.copy(alpha = 0.6f),
+                                    accentColor.copy(alpha = glowAlpha * 0.85f)
                                 )
                             } else {
-                                listOf(Color(0xFF2A3142), Color(0xFF2A3142))
+                                listOf(Color(0xFF334155), Color(0xFF334155))
                             }
                         ),
                         shape = pillShape
@@ -440,16 +447,16 @@ private fun BriefPopupOverlayScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 14.dp, end = 10.dp, top = 11.dp, bottom = 9.dp),
+                        .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Icono de la aplicación
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
-                            .background(accentColor.copy(alpha = 0.18f)),
+                            .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
                         if (appIconBitmap != null) {
@@ -457,7 +464,7 @@ private fun BriefPopupOverlayScreen(
                                 bitmap = appIconBitmap.asImageBitmap(),
                                 contentDescription = appName,
                                 modifier = Modifier
-                                    .size(34.dp)
+                                    .size(32.dp)
                                     .clip(CircleShape)
                             )
                         } else {
@@ -465,14 +472,14 @@ private fun BriefPopupOverlayScreen(
                                 imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = appName,
                                 tint = accentColor,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
-                    // Texto de resumen (Título + Mensaje compacto estilo Brief)
+                    // Textos de notificación estilo AOD (nítidos y legibles en pantalla oscura)
                     Column(
                         modifier = Modifier.weight(1f)
                     ) {
@@ -491,7 +498,7 @@ private fun BriefPopupOverlayScreen(
                             if (title.isNotBlank() && !title.equals(appName, ignoreCase = true)) {
                                 Text(
                                     text = " • $appName",
-                                    color = accentColor.copy(alpha = 0.9f),
+                                    color = accentColor.copy(alpha = 0.95f),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1
@@ -503,7 +510,7 @@ private fun BriefPopupOverlayScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = message,
-                                color = Color(0xFFD1D5DB),
+                                color = Color(0xFFE2E8F0),
                                 fontSize = 13.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -515,28 +522,28 @@ private fun BriefPopupOverlayScreen(
 
                     IconButton(
                         onClick = onManualDismiss,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Cerrar",
-                            tint = Color(0xFF9CA3AF),
-                            modifier = Modifier.size(16.dp)
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
 
-                // Barra inferior de tiempo restante antes de volver a apagar la pantalla
+                // Línea inferior de cuenta regresiva
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(2.5.dp)
-                        .background(Color(0xFF1E2433))
+                        .height(2.dp)
+                        .background(Color.Black)
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(fraction = animatedProgress.coerceIn(0f, 1f))
-                            .height(2.5.dp)
+                            .height(2.dp)
                             .background(accentColor)
                     )
                 }
