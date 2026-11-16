@@ -62,7 +62,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -122,11 +121,11 @@ class BriefPopupActivity : ComponentActivity() {
                 },
                 onManualDismiss = {
                     isUserInteracted = false
-                    turnOffScreenAndFinish()
+                    dismissAndTurnOff()
                 },
                 onTimeoutExpired = {
                     if (!isUserInteracted) {
-                        turnOffScreenAndFinish()
+                        dismissAndTurnOff()
                     }
                 }
             )
@@ -141,6 +140,22 @@ class BriefPopupActivity : ComponentActivity() {
         acquireTemporaryWakeLock()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Si el usuario desbloqueó el celular (por ejemplo usando el sensor de huellas físico
+        // o botón de encendido), cerramos la pastilla de inmediato para no estorbar en el launcher.
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (!km.isKeyguardLocked && !isUserInteracted) {
+            closeActivitySilently()
+        }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        // Al tocar la pantalla, cancelamos el apagado automático por timeout
+        isUserInteracted = true
+    }
+
     private fun extractIntentData(intent: Intent?) {
         if (intent == null) return
         pkgState = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: packageName
@@ -152,11 +167,11 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * Configuración idéntica a la pantalla AOD (Always-On Display) o texto de carga con pantalla apagada.
-     * En paneles OLED/AMOLED (Samsung Galaxy y similares):
-     * - El fondo #000000 mantiene el 99% de los píxeles físicamente apagados con consumo casi nulo.
-     * - Brillo ultra bajo y tenue (screenBrightness = 0.03f) para que parezca que la pantalla sigue apagada,
-     *   iluminando exclusivamente las letras/pastilla igual que la animación de carga de batería.
+     * Capa translúcida flotante sobre la pantalla bloqueada / AOD.
+     * Al ser translúcida:
+     * 1. NO tapa la animación de carga de batería nativa ni el reloj del AOD.
+     * 2. Si el usuario toca el lector de huellas dactilares o presiona encendido,
+     *    se desbloquea al primer intento sin quedarse en negro.
      */
     private fun configureAodLockScreenMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -169,9 +184,8 @@ class BriefPopupActivity : ComponentActivity() {
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
 
-        // Brillo mínimo tipo AOD para que la pantalla no dé destello ni se vea encendida
+        // Dejar que el sistema gestione el brillo natural (evita dejar la pantalla en negro al desbloquear)
         val layoutParams = window.attributes
-        layoutParams.screenBrightness = 0.035f
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -216,15 +230,10 @@ class BriefPopupActivity : ComponentActivity() {
 
     /**
      * Si el usuario toca la pastilla:
-     * Restablece el brillo normal y solicita el desbloqueo (huella, rostro o PIN).
+     * Solicita desbloqueo del Keyguard y abre la app correspondiente.
      */
     private fun openNotificationAndProceedUnlock() {
         isUserInteracted = true
-
-        // Restaurar brillo estándar del sistema al interactuar
-        val layoutParams = window.attributes
-        layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        window.attributes = layoutParams
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
@@ -242,9 +251,7 @@ class BriefPopupActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {
             } finally {
-                releaseWakeLock()
-                finish()
-                overridePendingTransition(0, 0)
+                closeActivitySilently()
             }
         }
 
@@ -257,9 +264,7 @@ class BriefPopupActivity : ComponentActivity() {
                     }
 
                     override fun onDismissCancelled() {
-                        releaseWakeLock()
-                        finish()
-                        overridePendingTransition(0, 0)
+                        closeActivitySilently()
                     }
 
                     override fun onDismissError() {
@@ -273,13 +278,33 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * Apaga la pantalla sin transiciones al expirar el tiempo del resumen o tocar cerrar
+     * Al expirar el tiempo sin interacción:
+     * Cierra la ventana y si la pantalla sigue interactiva la apaga con Accesibilidad.
      */
-    private fun turnOffScreenAndFinish() {
+    private fun dismissAndTurnOff() {
         if (isUserInteracted) return
 
         releaseWakeLock()
 
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+
+        // Si el teléfono ya fue desbloqueado por el usuario, no apagar la pantalla
+        if (!km.isKeyguardLocked) {
+            closeActivitySilently()
+            return
+        }
+
+        // Si sigue en bloqueo y no hubo toque, apagar pantalla con el servicio de Accesibilidad
+        if (BriefAccessibilityService.isRunning() && pm.isInteractive) {
+            BriefAccessibilityService.lockScreen()
+        }
+
+        closeActivitySilently()
+    }
+
+    private fun closeActivitySilently() {
+        releaseWakeLock()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setTurnScreenOn(false)
@@ -290,20 +315,6 @@ class BriefPopupActivity : ComponentActivity() {
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             )
         } catch (_: Exception) {}
-
-        // Apagar inmediatamente simulando el botón físico (sin deshabilitar biometría)
-        var screenTurnedOff = false
-        if (BriefAccessibilityService.isRunning()) {
-            screenTurnedOff = BriefAccessibilityService.lockScreen()
-        }
-
-        if (!screenTurnedOff) {
-            try {
-                val lp = window.attributes
-                lp.screenBrightness = 0.0f
-                window.attributes = lp
-            } catch (_: Exception) {}
-        }
 
         finish()
         overridePendingTransition(0, 0)
@@ -377,18 +388,17 @@ private fun BriefPopupOverlayScreen(
         onTimeoutExpired()
     }
 
-    // Fondo 100% negro AMOLED (#000000 absoluto): píxeles físicamente apagados
+    // Contenedor Translúcido: no oculta el indicador de carga del cargador ni el AOD nativo
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = { onManualDismiss() }
             )
     ) {
-        // Línea sutil superior Edge Lighting sobre la pantalla apagada
+        // Línea sutil superior Edge Lighting sobre la pantalla
         if (showEdgeGlow && visible) {
             Box(
                 modifier = Modifier
@@ -409,23 +419,22 @@ private fun BriefPopupOverlayScreen(
             )
         }
 
-        // Pastilla flotante estilo AOD (Letras y elementos nítidos sobre pantalla negra apagada)
+        // Pastilla flotante (Fondo negro OLED con borde, sin tapar el resto de la pantalla)
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(tween(200)) +
-                scaleIn(initialScale = 0.85f, animationSpec = tween(240, easing = FastOutSlowInEasing)) +
-                expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(260)),
-            exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.88f, animationSpec = tween(180)),
+            enter = fadeIn(tween(180)) +
+                scaleIn(initialScale = 0.88f, animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(240)),
+            exit = fadeOut(tween(160)) + scaleOut(targetScale = 0.90f, animationSpec = tween(160)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 64.dp, start = 20.dp, end = 20.dp)
+                .padding(top = 58.dp, start = 18.dp, end = 18.dp)
         ) {
-            val pillShape = RoundedCornerShape(28.dp)
+            val pillShape = RoundedCornerShape(26.dp)
             Column(
                 modifier = Modifier
                     .widthIn(min = 230.dp, max = 380.dp)
                     .clip(pillShape)
-                    // Fondo negro puro sin tarjeta gris para fundirse perfectamente con la pantalla apagada
                     .background(Color.Black)
                     .border(
                         width = 1.2.dp,
@@ -479,7 +488,7 @@ private fun BriefPopupOverlayScreen(
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // Textos de notificación estilo AOD (nítidos y legibles en pantalla oscura)
+                    // Textos de notificación estilo AOD
                     Column(
                         modifier = Modifier.weight(1f)
                     ) {
