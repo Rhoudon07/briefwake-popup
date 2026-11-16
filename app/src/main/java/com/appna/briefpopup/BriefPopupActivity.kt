@@ -1,13 +1,17 @@
 package com.appna.briefpopup
 
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -82,6 +86,10 @@ class BriefPopupActivity : ComponentActivity() {
     @Volatile
     private var isUserInteracted = false
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var unlockPollRunnable: Runnable? = null
+    private var userPresentReceiver: BroadcastReceiver? = null
+
     private var pkgState by mutableStateOf("")
     private var appNameState by mutableStateOf("")
     private var titleState by mutableStateOf("")
@@ -96,6 +104,7 @@ class BriefPopupActivity : ComponentActivity() {
         configureAodLockScreenMode()
         extractIntentData(intent)
         acquireTemporaryWakeLock()
+        setupUnlockDetection()
 
         setContent {
             val durationSeconds = remember(triggerTimestampState) {
@@ -108,7 +117,6 @@ class BriefPopupActivity : ComponentActivity() {
                 AppPreferences.isHideSensitive(this@BriefPopupActivity)
             }
 
-            // Monitoreo en tiempo real del estado de batería (para simular el indicador de carga si está enchufado)
             val batteryStatus by rememberBatteryStatus()
 
             BriefPopupOverlayScreen(
@@ -148,17 +156,62 @@ class BriefPopupActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Si el usuario desbloqueó el celular (por ejemplo usando sensor de huellas físico
-        // o botón de encendido), cerramos la pastilla de inmediato para no estorbar en el launcher.
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        if (!km.isKeyguardLocked && !isUserInteracted) {
-            closeActivitySilently()
+        checkIfAlreadyUnlockedAndFinish()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Si la ventana pierde foco porque el sistema inició el desbloqueo hacia el Launcher o app
+        if (!hasFocus) {
+            checkIfAlreadyUnlockedAndFinish()
         }
     }
 
     override fun onUserInteraction() {
         super.onUserInteraction()
         isUserInteracted = true
+    }
+
+    /**
+     * Detección activa en milisegundos del desbloqueo por huella dactilar, rostro o PIN:
+     * 1. BroadcastReceiver para ACTION_USER_PRESENT.
+     * 2. Bucle ligero de muestreo (polling de 150ms) con KeyguardManager.isKeyguardLocked.
+     * En cuanto se detecta que el usuario colocó la huella o se autenticó, la notificación
+     * se destruye de inmediato sin esperar a que expiren los segundos configurados.
+     */
+    private fun setupUnlockDetection() {
+        // Receptor del evento de desbloqueo emitido por el sistema Android
+        userPresentReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (Intent.ACTION_USER_PRESENT == intent?.action) {
+                    closeActivitySilently()
+                }
+            }
+        }
+        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+        registerReceiver(userPresentReceiver, filter)
+
+        // Polling ultra ligero para capturar el instante exacto en que la huella desbloquea el Keyguard
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        unlockPollRunnable = object : Runnable {
+            override fun run() {
+                if (!isFinishing && !isDestroyed) {
+                    if (!km.isKeyguardLocked) {
+                        closeActivitySilently()
+                        return
+                    }
+                    mainHandler.postDelayed(this, 150L)
+                }
+            }
+        }
+        mainHandler.postDelayed(unlockPollRunnable!!, 150L)
+    }
+
+    private fun checkIfAlreadyUnlockedAndFinish() {
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (!km.isKeyguardLocked && !isFinishing && !isDestroyed) {
+            closeActivitySilently()
+        }
     }
 
     private fun extractIntentData(intent: Intent?) {
@@ -171,14 +224,6 @@ class BriefPopupActivity : ComponentActivity() {
         triggerTimestampState = intent.getLongExtra(EXTRA_TIMESTAMP, System.currentTimeMillis())
     }
 
-    /**
-     * Emulación de Always-On Display (AOD) en negro absoluto (#000000 puro).
-     * En dispositivos que no traen AOD nativo de fábrica (como Galaxy A17/A1x):
-     * 1. La pantalla se cubre 100% de negro puro (#000000). En paneles Super AMOLED,
-     *    los píxeles negros están físicamente apagados con consumo de energía nulo.
-     * 2. Oculta la barra de estado y de navegación para que no se vea la pantalla de bloqueo de Samsung.
-     * 3. Deja el brillo del sistema intacto para que cuando pongas la huella, el desbloqueo sea instantáneo al primer intento.
-     */
     private fun configureAodLockScreenMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -234,8 +279,7 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * Si el usuario toca la pastilla:
-     * Solicita desbloqueo del Keyguard y abre la app correspondiente.
+     * Si el usuario toca directamente la pastilla
      */
     private fun openNotificationAndProceedUnlock() {
         isUserInteracted = true
@@ -283,8 +327,7 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     /**
-     * Al expirar el tiempo sin interacción:
-     * Cierra la ventana y si la pantalla sigue interactiva la apaga con Accesibilidad.
+     * Al expirar el tiempo sin interacción: apaga la pantalla
      */
     private fun dismissAndTurnOff() {
         if (isUserInteracted) return
@@ -294,13 +337,13 @@ class BriefPopupActivity : ComponentActivity() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
-        // Si el teléfono ya fue desbloqueado por el usuario, no apagar la pantalla
+        // Si el teléfono ya fue desbloqueado, no apagar la pantalla
         if (!km.isKeyguardLocked) {
             closeActivitySilently()
             return
         }
 
-        // Si sigue en bloqueo y no hubo toque, apagar pantalla con el servicio de Accesibilidad
+        // Si sigue en bloqueo y no hubo toque, apagar pantalla con Accesibilidad
         if (BriefAccessibilityService.isRunning() && pm.isInteractive) {
             BriefAccessibilityService.lockScreen()
         }
@@ -309,7 +352,9 @@ class BriefPopupActivity : ComponentActivity() {
     }
 
     private fun closeActivitySilently() {
+        stopUnlockDetection()
         releaseWakeLock()
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 setTurnScreenOn(false)
@@ -325,7 +370,19 @@ class BriefPopupActivity : ComponentActivity() {
         overridePendingTransition(0, 0)
     }
 
+    private fun stopUnlockDetection() {
+        unlockPollRunnable?.let { mainHandler.removeCallbacks(it) }
+        unlockPollRunnable = null
+        userPresentReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) {}
+        }
+        userPresentReceiver = null
+    }
+
     override fun onDestroy() {
+        stopUnlockDetection()
         releaseWakeLock()
         super.onDestroy()
     }
@@ -567,7 +624,6 @@ private fun BriefPopupOverlayScreen(
         }
 
         // Indicador inferior de carga de batería (Estilo AOD Samsung)
-        // Solo se muestra si el dispositivo está conectado al cargador, exactamente igual que el AOD de Samsung
         if (batteryStatus.isCharging && batteryStatus.level >= 0) {
             Row(
                 modifier = Modifier
