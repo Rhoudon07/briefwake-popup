@@ -20,6 +20,7 @@ object AppPreferences {
     private const val KEY_DURATION_SECONDS = "duration_seconds"
     private const val KEY_SHOW_EDGE_GLOW = "show_edge_glow"
     private const val KEY_HIDE_SENSITIVE = "hide_sensitive"
+    private const val KEY_WHATSAPP_COMPACT_PRIVATE = "whatsapp_compact_private"
     private const val KEY_INITIALIZED_DEFAULTS = "initialized_defaults"
 
     val COMMON_MESSAGING_PACKAGES = setOf(
@@ -45,6 +46,7 @@ object AppPreferences {
     @Volatile private var cachedDurationSeconds: Int? = null
     @Volatile private var cachedShowEdgeGlow: Boolean? = null
     @Volatile private var cachedHideSensitive: Boolean? = null
+    @Volatile private var cachedWhatsappCompactPrivate: Boolean? = null
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -142,6 +144,19 @@ object AppPreferences {
     fun setHideSensitive(context: Context, hide: Boolean) {
         cachedHideSensitive = hide
         prefs(context).edit().putBoolean(KEY_HIDE_SENSITIVE, hide).apply()
+    }
+
+    fun isWhatsappCompactPrivate(context: Context): Boolean {
+        val cached = cachedWhatsappCompactPrivate
+        if (cached != null) return cached
+        val value = prefs(context).getBoolean(KEY_WHATSAPP_COMPACT_PRIVATE, false)
+        cachedWhatsappCompactPrivate = value
+        return value
+    }
+
+    fun setWhatsappCompactPrivate(context: Context, enabled: Boolean) {
+        cachedWhatsappCompactPrivate = enabled
+        prefs(context).edit().putBoolean(KEY_WHATSAPP_COMPACT_PRIVATE, enabled).apply()
     }
 
     fun initializeDefaultAppsIfNeeded(context: Context, installedPackages: Set<String>): Set<String> {

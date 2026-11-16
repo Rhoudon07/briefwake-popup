@@ -157,6 +157,7 @@ fun BriefWakeMainScreen() {
     var durationSeconds by remember { mutableIntStateOf(AppPreferences.getDurationSeconds(context)) }
     var showEdgeGlow by remember { mutableStateOf(AppPreferences.isShowEdgeGlow(context)) }
     var hideSensitive by remember { mutableStateOf(AppPreferences.isHideSensitive(context)) }
+    var whatsappCompactPrivate by remember { mutableStateOf(AppPreferences.isWhatsappCompactPrivate(context)) }
     var enabledPackages by remember { mutableStateOf(AppPreferences.getEnabledPackages(context)) }
 
     // Lista de apps instaladas
@@ -210,10 +211,10 @@ fun BriefWakeMainScreen() {
                 Handler(Looper.getMainLooper()).post {
                     BriefNotificationListenerService.triggerBriefPopup(
                         context = context.applicationContext,
-                        packageName = context.packageName,
+                        packageName = "com.whatsapp",
                         appName = "WhatsApp",
-                        title = "Mensaje de Prueba",
-                        message = "¡Resumen con pantalla apagada y desbloqueo biométrico activo!",
+                        title = "Juan Pérez",
+                        message = "Hola, ¿cómo estás? Te envié el documento.",
                         accentColor = 0xFF25D366.toInt()
                     )
                 }
@@ -362,6 +363,11 @@ fun BriefWakeMainScreen() {
                     onHideSensitiveChange = {
                         hideSensitive = it
                         AppPreferences.setHideSensitive(context, it)
+                    },
+                    whatsappCompactPrivate = whatsappCompactPrivate,
+                    onWhatsappCompactPrivateChange = {
+                        whatsappCompactPrivate = it
+                        AppPreferences.setWhatsappCompactPrivate(context, it)
                     },
                     durationSeconds = durationSeconds,
                     onDurationChange = {
@@ -629,6 +635,8 @@ private fun SettingsCard(
     onShowEdgeGlowChange: (Boolean) -> Unit,
     hideSensitive: Boolean,
     onHideSensitiveChange: (Boolean) -> Unit,
+    whatsappCompactPrivate: Boolean,
+    onWhatsappCompactPrivateChange: (Boolean) -> Unit,
     durationSeconds: Int,
     onDurationChange: (Int) -> Unit
 ) {
@@ -671,6 +679,13 @@ private fun SettingsCard(
                 subtitle = "Muestra quién escribe o la app, pero oculta el texto del mensaje",
                 checked = hideSensitive,
                 onCheckedChange = onHideSensitiveChange
+            )
+
+            SettingSwitchRow(
+                title = "WhatsApp privado y reducido",
+                subtitle = "Oculta el remitente, muestra solo 'Nuevo mensaje' y reduce el tamaño de la pastilla",
+                checked = whatsappCompactPrivate,
+                onCheckedChange = onWhatsappCompactPrivateChange
             )
 
             Spacer(modifier = Modifier.height(2.dp))

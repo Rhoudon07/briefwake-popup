@@ -116,18 +116,27 @@ class BriefPopupActivity : ComponentActivity() {
             val hideSensitive = remember(triggerTimestampState) {
                 AppPreferences.isHideSensitive(this@BriefPopupActivity)
             }
+            val isWhatsappCompact = remember(triggerTimestampState, pkgState) {
+                pkgState.contains("whatsapp", ignoreCase = true) &&
+                    AppPreferences.isWhatsappCompactPrivate(this@BriefPopupActivity)
+            }
 
             val batteryStatus by rememberBatteryStatus()
 
             BriefPopupOverlayScreen(
                 packageName = pkgState,
-                appName = appNameState,
-                title = titleState,
-                message = if (hideSensitive) "Nueva notificación recibida" else messageState,
+                appName = if (isWhatsappCompact) "WhatsApp" else appNameState,
+                title = if (isWhatsappCompact) "WhatsApp" else titleState,
+                message = when {
+                    isWhatsappCompact -> "Nuevo mensaje"
+                    hideSensitive -> "Nueva notificación recibida"
+                    else -> messageState
+                },
                 accentColor = Color(accentColorState),
                 durationSeconds = durationSeconds,
                 showEdgeGlow = showEdgeGlow,
                 batteryStatus = batteryStatus,
+                isCompactMode = isWhatsappCompact,
                 triggerKey = triggerTimestampState,
                 onOpenNotification = {
                     isUserInteracted = true
@@ -404,6 +413,7 @@ private fun BriefPopupOverlayScreen(
     durationSeconds: Int,
     showEdgeGlow: Boolean,
     batteryStatus: BatteryStatus,
+    isCompactMode: Boolean = false,
     triggerKey: Long,
     onOpenNotification: () -> Unit,
     onManualDismiss: () -> Unit,
@@ -489,7 +499,7 @@ private fun BriefPopupOverlayScreen(
                 .align(Alignment.TopCenter)
                 .padding(top = 58.dp, start = 18.dp, end = 18.dp)
         ) {
-            val pillShape = RoundedCornerShape(26.dp)
+            val pillShape = RoundedCornerShape(if (isCompactMode) 20.dp else 26.dp)
             val borderBrush = remember(showEdgeGlow, accentColor) {
                 if (showEdgeGlow) {
                     Brush.horizontalGradient(
@@ -506,7 +516,10 @@ private fun BriefPopupOverlayScreen(
 
             Box(
                 modifier = Modifier
-                    .widthIn(min = 230.dp, max = 380.dp)
+                    .widthIn(
+                        min = if (isCompactMode) 170.dp else 230.dp,
+                        max = if (isCompactMode) 280.dp else 380.dp
+                    )
                     .clip(pillShape)
                     .background(Color(0xFF11141C))
                     .clickable { onOpenNotification() }
@@ -517,14 +530,19 @@ private fun BriefPopupOverlayScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
+                            .padding(
+                                start = if (isCompactMode) 10.dp else 14.dp,
+                                end = if (isCompactMode) 8.dp else 10.dp,
+                                top = if (isCompactMode) 6.dp else 10.dp,
+                                bottom = if (isCompactMode) 6.dp else 8.dp
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                     // Icono de la aplicación
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(if (isCompactMode) 26.dp else 34.dp)
                             .clip(CircleShape)
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
@@ -534,7 +552,7 @@ private fun BriefPopupOverlayScreen(
                                 bitmap = appIconBitmap.asImageBitmap(),
                                 contentDescription = appName,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(if (isCompactMode) 24.dp else 32.dp)
                                     .clip(CircleShape)
                             )
                         } else {
@@ -542,63 +560,85 @@ private fun BriefPopupOverlayScreen(
                                 imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = appName,
                                 tint = accentColor,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(if (isCompactMode) 16.dp else 20.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(if (isCompactMode) 8.dp else 10.dp))
 
-                    // Textos de notificación estilo Resumen
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
+                    // Textos de notificación: modo compacto estilizado o modo completo estándar
+                    if (isCompactMode) {
                         Row(
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = title.ifBlank { appName },
+                                text = "WhatsApp",
                                 color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            if (title.isNotBlank() && !title.equals(appName, ignoreCase = true)) {
-                                Text(
-                                    text = " • $appName",
-                                    color = accentColor.copy(alpha = 0.95f),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        if (message.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = message,
-                                color = Color(0xFFE2E8F0),
                                 fontSize = 13.sp,
-                                maxLines = 2,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = " • Nuevo mensaje",
+                                color = accentColor.copy(alpha = 0.95f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                    } else {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = title.ifBlank { appName },
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (title.isNotBlank() && !title.equals(appName, ignoreCase = true)) {
+                                    Text(
+                                        text = " • $appName",
+                                        color = accentColor.copy(alpha = 0.95f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            if (message.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = message,
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 13.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(if (isCompactMode) 4.dp else 6.dp))
 
                     IconButton(
                         onClick = onManualDismiss,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(if (isCompactMode) 22.dp else 26.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Cerrar",
                             tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(if (isCompactMode) 13.dp else 15.dp)
                         )
                     }
                 }
