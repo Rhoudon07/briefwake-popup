@@ -42,7 +42,7 @@ Este script:
 1. Instala el APK compilado (`app-debug.apk`).
 2. Concede los permisos de listener de notificaciones y superposición.
 3. Excluye la app del ahorro agresivo de batería de One UI.
-4. Ajusta los parámetros del sistema Samsung para habilitar el estilo resumen con pantalla apagada.
+4. Asegura el estilo de notificación 'Detallado' de One UI para mantener los banners emergentes nativos con pantalla encendida.
 5. Inicia la app.
 
 ---

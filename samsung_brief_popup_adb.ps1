@@ -41,9 +41,9 @@ Write-Host "`n3. Concediendo permisos críticos automáticamente por ADB..." -Fo
 & $adbPath shell settings put secure enabled_accessibility_services $accessibilityComponent
 & $adbPath shell settings put secure accessibility_enabled 1
 
-Write-Host "`n4. (Opcional Samsung One UI) Activando soporte nativo de Resumen con pantalla apagada..." -ForegroundColor Cyan
-& $adbPath shell settings put system edge_lighting 1
-& $adbPath shell settings put system edge_lighting_show_condition 0
+Write-Host "`n4. Restaurando estilo nativo 'Detallado' para pantalla encendida (mantiene popups flotantes nativos)..." -ForegroundColor Cyan
+# edge_lighting = 0 activa el estilo 'Detallado' nativo de Android en Samsung, permitiendo ver banners emergentes con pantalla encendida
+& $adbPath shell settings put system edge_lighting 0
 
 Write-Host "`n5. Abriendo BriefWake Popup en el dispositivo..." -ForegroundColor Green
 & $adbPath shell am start -n "$pkg/$pkg.MainActivity"
