@@ -96,6 +96,7 @@ class BriefPopupActivity : ComponentActivity() {
     private var messageState by mutableStateOf("")
     private var accentColorState by mutableIntStateOf(0xFF38BDF8.toInt())
     private var triggerTimestampState by mutableLongStateOf(0L)
+    private var isPreviewMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -165,13 +166,15 @@ class BriefPopupActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        checkIfAlreadyUnlockedAndFinish()
+        if (!isPreviewMode) {
+            checkIfAlreadyUnlockedAndFinish()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         // Si la ventana pierde foco porque el sistema inició el desbloqueo hacia el Launcher o app
-        if (!hasFocus) {
+        if (!hasFocus && !isPreviewMode) {
             checkIfAlreadyUnlockedAndFinish()
         }
     }
@@ -188,6 +191,7 @@ class BriefPopupActivity : ComponentActivity() {
      * Cero bucles de polling para permitir que la CPU permanezca en reposo.
      */
     private fun setupUnlockDetection() {
+        if (isPreviewMode) return
         userPresentReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (Intent.ACTION_USER_PRESENT == intent?.action) {
@@ -214,6 +218,7 @@ class BriefPopupActivity : ComponentActivity() {
         messageState = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
         accentColorState = intent.getIntExtra(EXTRA_ACCENT_COLOR, 0xFF38BDF8.toInt())
         triggerTimestampState = intent.getLongExtra(EXTRA_TIMESTAMP, System.currentTimeMillis())
+        isPreviewMode = intent.getBooleanExtra(EXTRA_IS_PREVIEW, false)
     }
 
     private fun configureAodLockScreenMode() {
@@ -275,6 +280,10 @@ class BriefPopupActivity : ComponentActivity() {
      */
     private fun openNotificationAndProceedUnlock() {
         isUserInteracted = true
+        if (isPreviewMode) {
+            closeActivitySilently()
+            return
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
@@ -325,6 +334,12 @@ class BriefPopupActivity : ComponentActivity() {
         if (isUserInteracted) return
 
         releaseWakeLock()
+
+        // En modo vista previa ("Ver ahora"), simplemente cerramos la actividad sin apagar la pantalla
+        if (isPreviewMode) {
+            closeActivitySilently()
+            return
+        }
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
@@ -384,6 +399,7 @@ class BriefPopupActivity : ComponentActivity() {
         const val EXTRA_MESSAGE = "extra_message"
         const val EXTRA_ACCENT_COLOR = "extra_accent_color"
         const val EXTRA_TIMESTAMP = "extra_timestamp"
+        const val EXTRA_IS_PREVIEW = "extra_is_preview"
 
         // Caché en memoria para evitar llamadas IPC reiteradas y decodificación de bitmaps
         private val iconCache = android.util.LruCache<String, Bitmap>(30)

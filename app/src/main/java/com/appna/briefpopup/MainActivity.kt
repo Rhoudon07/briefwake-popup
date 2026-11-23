@@ -324,13 +324,15 @@ fun BriefWakeMainScreen() {
 
                             OutlinedButton(
                                 onClick = {
+                                    val isWhatsapp = whatsappCompactPrivate
                                     BriefNotificationListenerService.triggerBriefPopup(
-                                        context = context.applicationContext,
-                                        packageName = context.packageName,
-                                        appName = "Telegram",
-                                        title = "Vista Previa Inmediata",
-                                        message = "Pastilla emergente con compatibilidad de huella/rostro.",
-                                        accentColor = 0xFF2AABEE.toInt()
+                                        context = context,
+                                        packageName = if (isWhatsapp) "com.whatsapp" else "org.telegram.messenger",
+                                        appName = if (isWhatsapp) "WhatsApp" else "Telegram",
+                                        title = if (isWhatsapp) "Juan Pérez" else "Vista Previa Inmediata",
+                                        message = if (isWhatsapp) "Hola, ¿cómo estás? Te envié el documento." else "Pastilla emergente sobre fondo negro AMOLED.",
+                                        accentColor = if (isWhatsapp) 0xFF25D366.toInt() else 0xFF2AABEE.toInt(),
+                                        isPreview = true
                                     )
                                 }
                             ) {

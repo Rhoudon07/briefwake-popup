@@ -156,7 +156,8 @@ class BriefNotificationListenerService : NotificationListenerService() {
             title: String,
             message: String,
             accentColor: Int,
-            contentIntent: PendingIntent? = null
+            contentIntent: PendingIntent? = null,
+            isPreview: Boolean = false
         ) {
             RecentNotificationActionStore.lastContentIntent = contentIntent
             RecentNotificationActionStore.lastPackageName = packageName
@@ -175,6 +176,7 @@ class BriefNotificationListenerService : NotificationListenerService() {
                 putExtra(BriefPopupActivity.EXTRA_MESSAGE, message)
                 putExtra(BriefPopupActivity.EXTRA_ACCENT_COLOR, accentColor)
                 putExtra(BriefPopupActivity.EXTRA_TIMESTAMP, System.currentTimeMillis())
+                putExtra(BriefPopupActivity.EXTRA_IS_PREVIEW, isPreview)
             }
 
             // 1. Intentar lanzar directamente la actividad
@@ -185,6 +187,8 @@ class BriefNotificationListenerService : NotificationListenerService() {
             } catch (e: Exception) {
                 Log.w(TAG, "Direct startActivity falló o fue bloqueado por política de segundo plano", e)
             }
+
+            if (isPreview) return // En modo prueba "Ver ahora", no disparamos la notificación heads-up auxiliar
 
             // 2. Mecanismo de respaldo Full Screen Intent (requerido en Android 10+ / Samsung One UI para arrancar sobre pantalla bloqueada)
             try {
