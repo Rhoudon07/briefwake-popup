@@ -30,6 +30,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -121,6 +123,9 @@ class BriefPopupActivity : ComponentActivity() {
                 pkgState.contains("whatsapp", ignoreCase = true) &&
                     AppPreferences.isWhatsappCompactPrivate(this@BriefPopupActivity)
             }
+            val popupAnimation = remember(triggerTimestampState) {
+                AppPreferences.getPopupAnimation(this@BriefPopupActivity)
+            }
 
             val batteryStatus by rememberBatteryStatus()
 
@@ -138,6 +143,7 @@ class BriefPopupActivity : ComponentActivity() {
                 showEdgeGlow = showEdgeGlow,
                 batteryStatus = batteryStatus,
                 isCompactMode = isWhatsappCompact,
+                animationType = popupAnimation,
                 triggerKey = triggerTimestampState,
                 onOpenNotification = {
                     isUserInteracted = true
@@ -430,6 +436,7 @@ private fun BriefPopupOverlayScreen(
     showEdgeGlow: Boolean,
     batteryStatus: BatteryStatus,
     isCompactMode: Boolean = false,
+    animationType: String = AppPreferences.ANIMATION_SLIDE,
     triggerKey: Long,
     onOpenNotification: () -> Unit,
     onManualDismiss: () -> Unit,
@@ -504,13 +511,56 @@ private fun BriefPopupOverlayScreen(
             )
         }
 
+        // Transiciones configurables de entrada y salida
+        val (enterTransition, exitTransition) = remember(animationType) {
+            when (animationType) {
+                AppPreferences.ANIMATION_SLIDE -> {
+                    (slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(180))) to (slideOutVertically(
+                        targetOffsetY = { -it },
+                        animationSpec = tween(220, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(160)))
+                }
+                AppPreferences.ANIMATION_SCALE -> {
+                    (scaleIn(
+                        initialScale = 0.72f,
+                        animationSpec = tween(260, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(180))) to (scaleOut(
+                        targetScale = 0.82f,
+                        animationSpec = tween(180)
+                    ) + fadeOut(tween(160)))
+                }
+                AppPreferences.ANIMATION_FADE -> {
+                    fadeIn(tween(280, easing = LinearEasing)) to
+                        fadeOut(tween(200, easing = LinearEasing))
+                }
+                AppPreferences.ANIMATION_EXPAND -> {
+                    (expandHorizontally(
+                        expandFrom = Alignment.CenterHorizontally,
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                    ) + scaleIn(initialScale = 0.88f, animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                        fadeIn(tween(180))) to
+                        (fadeOut(tween(160)) + scaleOut(targetScale = 0.90f, animationSpec = tween(160)))
+                }
+                else -> {
+                    (slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(180))) to (slideOutVertically(
+                        targetOffsetY = { -it },
+                        animationSpec = tween(220, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(160)))
+                }
+            }
+        }
+
         // Pastilla de notificación estilo Resumen emergente
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(tween(180)) +
-                scaleIn(initialScale = 0.88f, animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                expandHorizontally(expandFrom = Alignment.CenterHorizontally, animationSpec = tween(240)),
-            exit = fadeOut(tween(160)) + scaleOut(targetScale = 0.90f, animationSpec = tween(160)),
+            enter = enterTransition,
+            exit = exitTransition,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 58.dp, start = 18.dp, end = 18.dp)

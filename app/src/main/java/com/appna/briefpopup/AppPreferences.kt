@@ -21,7 +21,13 @@ object AppPreferences {
     private const val KEY_SHOW_EDGE_GLOW = "show_edge_glow"
     private const val KEY_HIDE_SENSITIVE = "hide_sensitive"
     private const val KEY_WHATSAPP_COMPACT_PRIVATE = "whatsapp_compact_private"
+    private const val KEY_POPUP_ANIMATION = "popup_animation"
     private const val KEY_INITIALIZED_DEFAULTS = "initialized_defaults"
+
+    const val ANIMATION_SLIDE = "slide"
+    const val ANIMATION_SCALE = "scale"
+    const val ANIMATION_FADE = "fade"
+    const val ANIMATION_EXPAND = "expand"
 
     val COMMON_MESSAGING_PACKAGES = setOf(
         "com.whatsapp",
@@ -47,6 +53,7 @@ object AppPreferences {
     @Volatile private var cachedShowEdgeGlow: Boolean? = null
     @Volatile private var cachedHideSensitive: Boolean? = null
     @Volatile private var cachedWhatsappCompactPrivate: Boolean? = null
+    @Volatile private var cachedPopupAnimation: String? = null
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -157,6 +164,19 @@ object AppPreferences {
     fun setWhatsappCompactPrivate(context: Context, enabled: Boolean) {
         cachedWhatsappCompactPrivate = enabled
         prefs(context).edit().putBoolean(KEY_WHATSAPP_COMPACT_PRIVATE, enabled).apply()
+    }
+
+    fun getPopupAnimation(context: Context): String {
+        val cached = cachedPopupAnimation
+        if (cached != null) return cached
+        val value = prefs(context).getString(KEY_POPUP_ANIMATION, ANIMATION_SLIDE) ?: ANIMATION_SLIDE
+        cachedPopupAnimation = value
+        return value
+    }
+
+    fun setPopupAnimation(context: Context, animation: String) {
+        cachedPopupAnimation = animation
+        prefs(context).edit().putString(KEY_POPUP_ANIMATION, animation).apply()
     }
 
     fun initializeDefaultAppsIfNeeded(context: Context, installedPackages: Set<String>): Set<String> {

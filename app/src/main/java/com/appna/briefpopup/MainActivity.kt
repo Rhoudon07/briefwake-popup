@@ -158,6 +158,7 @@ fun BriefWakeMainScreen() {
     var showEdgeGlow by remember { mutableStateOf(AppPreferences.isShowEdgeGlow(context)) }
     var hideSensitive by remember { mutableStateOf(AppPreferences.isHideSensitive(context)) }
     var whatsappCompactPrivate by remember { mutableStateOf(AppPreferences.isWhatsappCompactPrivate(context)) }
+    var popupAnimation by remember { mutableStateOf(AppPreferences.getPopupAnimation(context)) }
     var enabledPackages by remember { mutableStateOf(AppPreferences.getEnabledPackages(context)) }
 
     // Lista de apps instaladas
@@ -370,6 +371,11 @@ fun BriefWakeMainScreen() {
                     onWhatsappCompactPrivateChange = {
                         whatsappCompactPrivate = it
                         AppPreferences.setWhatsappCompactPrivate(context, it)
+                    },
+                    popupAnimation = popupAnimation,
+                    onPopupAnimationChange = {
+                        popupAnimation = it
+                        AppPreferences.setPopupAnimation(context, it)
                     },
                     durationSeconds = durationSeconds,
                     onDurationChange = {
@@ -639,6 +645,8 @@ private fun SettingsCard(
     onHideSensitiveChange: (Boolean) -> Unit,
     whatsappCompactPrivate: Boolean,
     onWhatsappCompactPrivateChange: (Boolean) -> Unit,
+    popupAnimation: String,
+    onPopupAnimationChange: (String) -> Unit,
     durationSeconds: Int,
     onDurationChange: (Int) -> Unit
 ) {
@@ -689,6 +697,62 @@ private fun SettingsCard(
                 checked = whatsappCompactPrivate,
                 onCheckedChange = onWhatsappCompactPrivateChange
             )
+
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Animación al aparecer la pastilla",
+                color = Color(0xFFE2E8F0),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "Efecto visual de entrada cuando llega la notificación",
+                color = Color(0xFF94A3B8),
+                fontSize = 11.sp
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        AppPreferences.ANIMATION_SLIDE to "Deslizar",
+                        AppPreferences.ANIMATION_SCALE to "Pop / Escala"
+                    ).forEach { (animKey, animLabel) ->
+                        FilterChip(
+                            selected = popupAnimation == animKey,
+                            onClick = { onPopupAnimationChange(animKey) },
+                            label = { Text(animLabel, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF38BDF8).copy(alpha = 0.25f),
+                                selectedLabelColor = Color(0xFF38BDF8)
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        AppPreferences.ANIMATION_FADE to "Desvanecer",
+                        AppPreferences.ANIMATION_EXPAND to "Expansión"
+                    ).forEach { (animKey, animLabel) ->
+                        FilterChip(
+                            selected = popupAnimation == animKey,
+                            onClick = { onPopupAnimationChange(animKey) },
+                            label = { Text(animLabel, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF38BDF8).copy(alpha = 0.25f),
+                                selectedLabelColor = Color(0xFF38BDF8)
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(2.dp))
             Text(
